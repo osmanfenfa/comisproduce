@@ -1,6 +1,7 @@
+from decimal import Decimal
 import uuid
 from datetime import date, datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from app.models.transaction_status import TransactionStatus
 
 
@@ -8,19 +9,20 @@ class ColaTransactionCreate(BaseModel):
     seller_id: uuid.UUID | None = None
     random_seller_name: str | None = None
     random_seller_contact: str | None = None
+    client_ref: str | None = Field(default=None, max_length=64)   # set by the offline queue
     date: date
-    weight_kg: float
-    bags: int | None = 1
-    price_per_kg: float
-    manual_total_override: float | None = None  # if set, overrides calculated total
+    weight_kg: float = Field(gt=0)
+    bags: int | None = Field(default=1, ge=0)
+    price_per_kg: Decimal = Field(ge=0, max_digits=14, decimal_places=2)
+    manual_total_override: Decimal | None = Field(default=None, max_digits=14, decimal_places=2)  # if set, overrides calculated total
 
 
 class ColaTransactionEdit(BaseModel):
     """Used to correct a REJECTED or PENDING transaction before (re)submitting."""
-    weight_kg: float
-    bags: int | None = 1
-    price_per_kg: float
-    manual_total_override: float | None = None
+    weight_kg: float = Field(gt=0)
+    bags: int | None = Field(default=1, ge=0)
+    price_per_kg: Decimal = Field(ge=0, max_digits=14, decimal_places=2)
+    manual_total_override: Decimal | None = Field(default=None, max_digits=14, decimal_places=2)
 
 
 class RejectPayload(BaseModel):
@@ -48,6 +50,7 @@ class ColaTransactionOut(BaseModel):
     is_random_seller: bool = False
     produce_id: uuid.UUID | None = None
     station_name: str | None = None
+    synced_at: datetime | None = None   # None = still at the station (not yet synced)
 
     class Config:
         from_attributes = True

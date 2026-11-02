@@ -1,8 +1,10 @@
 import uuid
+from decimal import Decimal
 from datetime import date, datetime
 from sqlalchemy import ForeignKey, Float, Integer, Date, DateTime, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
+from app.models.types import Money
 
 
 class Supply(Base):
@@ -30,8 +32,8 @@ class Supply(Base):
     witness_name: Mapped[str] = mapped_column(String(150), nullable=False)
 
     # Optional financials
-    price_per_kg: Mapped[float | None] = mapped_column(Float, nullable=True)
-    total_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    price_per_kg: Mapped[Decimal | None] = mapped_column(Money, nullable=True)
+    total_value: Mapped[Decimal | None] = mapped_column(Money, nullable=True)
     notes: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

@@ -1,11 +1,26 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import client from "../api/client.js";
 import { useAuthStore } from "../store/authStore.js";
 import { useAppStore } from "../store/appStore.js";
 import { 
   Search, Plus, User, Phone, MapPin, AlertCircle, 
-  X, Check, History, Wallet, ArrowRight, UserX, UserCheck
+  X, Check, History, Wallet, ArrowRight, UserX, UserCheck,
+  Upload, Download, FileSpreadsheet
 } from "lucide-react";
+
+import { DISTRICTS as DEFAULT_DISTRICTS, sellerLocation } from "../utils/locations.js";
+
+async function downloadBlob(url, filename) {
+  const res = await client.get(url, { responseType: "blob" });
+  const blobUrl = window.URL.createObjectURL(new Blob([res.data]));
+  const link = document.createElement("a");
+  link.href = blobUrl;
+  link.setAttribute("download", filename);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(blobUrl);
+}
 
 export default function Seller() {
   const { role } = useAuthStore();
@@ -22,7 +37,19 @@ export default function Seller() {
   const [gender, setGender] = useState("male");
   const [address, setAddress] = useState("");
   const [contact, setContact] = useState("");
+  const [section, setSection] = useState("");
+  const [chiefdom, setChiefdom] = useState("");
+  const [district, setDistrict] = useState("");
+  const [districts, setDistricts] = useState(DEFAULT_DISTRICTS);
   const [regError, setRegError] = useState("");
+
+  // Bulk upload state
+  const [showBulkModal, setShowBulkModal] = useState(false);
+  const [bulkFile, setBulkFile] = useState(null);
+  const [bulkResult, setBulkResult] = useState(null);
+  const [bulkError, setBulkError] = useState("");
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const fileInputRef = useRef(null);
   const [submitting, setSubmitting] = useState(false);
 
   // Secretary loan balance cache
@@ -30,6 +57,9 @@ export default function Seller() {
 
   useEffect(() => {
     fetchSellers();
+    client.get("/sellers/districts").then(({ data }) => {
+      if (Array.isArray(data) && data.length) setDistricts(data);
+    }).catch(() => {});
   }, []);
 
   // Filter sellers
@@ -38,7 +68,10 @@ export default function Seller() {
     return (
       s.name?.toLowerCase().includes(term) ||
       s.contact?.toLowerCase().includes(term) ||
-      s.seller_id?.toLowerCase().includes(term)
+      s.seller_id?.toLowerCase().includes(term) ||
+      s.chiefdom?.toLowerCase().includes(term) ||
+      s.district?.toLowerCase().includes(term) ||
+      s.section?.toLowerCase().includes(term)
     );
   });
 
@@ -53,16 +86,63 @@ export default function Seller() {
         gender,
         address,
         contact,
+        section: section.trim() || null,
+        chiefdom: chiefdom.trim(),
+        district,
       });
       addLocalSeller(data);
       setShowRegisterModal(false);
       setName("");
       setAddress("");
       setContact("");
+      setSection("");
+      setChiefdom("");
+      setDistrict("");
     } catch (err) {
       setRegError(err.response?.data?.detail || "Could not register seller");
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  // Bulk upload: preview (dry run) first, then import
+  const resetBulk = () => {
+    setBulkFile(null);
+    setBulkResult(null);
+    setBulkError("");
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const runBulkUpload = async (file, dryRun) => {
+    setBulkBusy(true);
+    setBulkError("");
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      // Let the browser set the multipart boundary
+      const { data } = await client.post(`/sellers/bulk-upload?dry_run=${dryRun}`, form);
+      setBulkResult(data);
+      if (!dryRun) fetchSellers();
+    } catch (err) {
+      setBulkResult(null);
+      setBulkError(err.response?.data?.detail || "Could not read the file. Check it and try again.");
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const handleBulkFileChosen = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setBulkFile(file);
+    runBulkUpload(file, true);
+  };
+
+  const handleTemplateDownload = async (format) => {
+    try {
+      await downloadBlob(`/sellers/bulk-template?format=${format}`, `COMIS_Seller_Import_Template.${format}`);
+    } catch {
+      setBulkError("Could not download the template.");
     }
   };
 
@@ -109,13 +189,24 @@ export default function Seller() {
           <h1 className="text-xl font-bold text-slate-900">Sellers Directory</h1>
           <p className="text-xs text-slate-500 mt-0.5">Register, search, and verify sellers</p>
         </div>
-        <button
-          onClick={() => setShowRegisterModal(true)}
-          className="bg-emerald-800 hover:bg-emerald-900 text-white font-semibold text-xs px-3.5 py-2 rounded-xl flex items-center gap-1.5 shadow-sm transition"
-        >
-          <Plus className="w-4 h-4" />
-          <span>New Seller</span>
-        </button>
+        <div className="flex items-center gap-2">
+          {role !== "system_admin" && (
+            <button
+              onClick={() => { resetBulk(); setShowBulkModal(true); }}
+              className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold text-xs px-3 py-2 rounded-xl flex items-center gap-1.5 shadow-sm transition"
+            >
+              <Upload className="w-4 h-4" />
+              <span>Bulk Upload</span>
+            </button>
+          )}
+          <button
+            onClick={() => setShowRegisterModal(true)}
+            className="bg-emerald-800 hover:bg-emerald-900 text-white font-semibold text-xs px-3.5 py-2 rounded-xl flex items-center gap-1.5 shadow-sm transition"
+          >
+            <Plus className="w-4 h-4" />
+            <span>New Seller</span>
+          </button>
+        </div>
       </div>
 
       {/* Search Input */}
@@ -123,7 +214,7 @@ export default function Seller() {
         <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
         <input
           type="text"
-          placeholder="Search by name, phone (+232...), or ID (SL-...)"
+          placeholder="Search by name, phone, ID (SL-...), chiefdom or district"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           className="w-full bg-white border border-slate-200 rounded-xl py-2.5 pl-10 pr-4 text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-700 shadow-sm"
@@ -164,7 +255,11 @@ export default function Seller() {
                   <p className="text-xs text-slate-500 flex items-center gap-2 mt-0.5">
                     <span>{seller.contact || "No phone"}</span>
                     <span>·</span>
-                    <span>{seller.address || "Kenema"}</span>
+                    <span>
+                      {seller.chiefdom || seller.district
+                        ? [seller.chiefdom, seller.district].filter(Boolean).join(", ")
+                        : seller.address || "—"}
+                    </span>
                   </p>
                 </div>
               </div>
@@ -179,7 +274,7 @@ export default function Seller() {
           ========================================================================= */}
       {showRegisterModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 backdrop-blur-xs">
-          <div className="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl p-6 shadow-2xl animate-in slide-in-from-bottom duration-200">
+          <div className="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl p-6 shadow-2xl animate-in slide-in-from-bottom duration-200 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <h2 className="text-base font-bold text-slate-900">Register New Seller</h2>
               <button
@@ -239,9 +334,50 @@ export default function Seller() {
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Hangha Town, Kenema District"
+                  placeholder="e.g. Hangha Town"
                   value={address}
                   onChange={(e) => setAddress(e.target.value)}
+                  className="w-full border border-slate-300 rounded-xl p-2.5 text-sm focus:ring-2 focus:ring-emerald-700 focus:outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">District</label>
+                  <select
+                    required
+                    value={district}
+                    onChange={(e) => setDistrict(e.target.value)}
+                    className="w-full border border-slate-300 rounded-xl p-2.5 text-sm focus:ring-2 focus:ring-emerald-700 focus:outline-none bg-white"
+                  >
+                    <option value="" disabled>Select district</option>
+                    {districts.map((d) => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Chiefdom</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Nongowa"
+                    value={chiefdom}
+                    onChange={(e) => setChiefdom(e.target.value)}
+                    className="w-full border border-slate-300 rounded-xl p-2.5 text-sm focus:ring-2 focus:ring-emerald-700 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Section <span className="font-normal text-slate-400">(optional)</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Hangha"
+                  value={section}
+                  onChange={(e) => setSection(e.target.value)}
                   className="w-full border border-slate-300 rounded-xl p-2.5 text-sm focus:ring-2 focus:ring-emerald-700 focus:outline-none"
                 />
               </div>
@@ -263,6 +399,178 @@ export default function Seller() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          BULK UPLOAD MODAL (CSV / Excel)
+          ========================================================================= */}
+      {showBulkModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 backdrop-blur-xs">
+          <div className="bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-2xl p-6 shadow-2xl animate-in slide-in-from-bottom duration-200 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div>
+                <h2 className="text-base font-bold text-slate-900">Bulk Upload Sellers</h2>
+                <p className="text-[11px] text-slate-500 mt-0.5">Import many sellers at once from CSV or Excel</p>
+              </div>
+              <button
+                onClick={() => setShowBulkModal(false)}
+                className="p-1 rounded-full text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4 mt-4">
+              {/* Step 1: template */}
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
+                <p className="text-xs font-semibold text-slate-800">1. Download the template</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Columns: Full Name, Gender, Phone Number, Address / Village, Section, Chiefdom, District.
+                  Full Name, Chiefdom and District are required.
+                </p>
+                <div className="flex gap-2 mt-2.5">
+                  <button
+                    type="button"
+                    onClick={() => handleTemplateDownload("xlsx")}
+                    className="flex-1 bg-emerald-800 hover:bg-emerald-900 text-white font-semibold py-2 rounded-xl text-xs flex items-center justify-center gap-1.5 transition"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5" />
+                    <span>Excel Template</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleTemplateDownload("csv")}
+                    className="flex-1 border border-slate-300 text-slate-700 font-semibold py-2 rounded-xl text-xs hover:bg-white flex items-center justify-center gap-1.5 transition"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>CSV Template</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Step 2: choose file */}
+              <div>
+                <p className="text-xs font-semibold text-slate-800 mb-1.5">2. Choose your filled file</p>
+                <label className="block border-2 border-dashed border-slate-300 hover:border-emerald-600 rounded-xl p-4 text-center cursor-pointer transition">
+                  <Upload className="w-6 h-6 text-slate-400 mx-auto" />
+                  <span className="block text-xs font-semibold text-slate-700 mt-1.5">
+                    {bulkFile ? bulkFile.name : "Tap to select a .csv or .xlsx file"}
+                  </span>
+                  <span className="block text-[10px] text-slate-400 mt-0.5">Up to 5,000 sellers · max 5 MB</span>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    onChange={handleBulkFileChosen}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+
+              {bulkError && (
+                <div className="p-2.5 bg-red-50 text-red-700 text-xs rounded-xl border border-red-200 flex gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{bulkError}</span>
+                </div>
+              )}
+
+              {bulkBusy && (
+                <div className="text-center py-3 text-xs text-slate-400">Checking file...</div>
+              )}
+
+              {/* Step 3: preview / result */}
+              {bulkResult && !bulkBusy && (
+                <div className="space-y-3">
+                  {!bulkResult.dry_run && (
+                    <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-900 flex gap-2">
+                      <Check className="w-4 h-4 shrink-0" />
+                      <span>
+                        <b>{bulkResult.created}</b> seller{bulkResult.created === 1 ? "" : "s"} imported successfully.
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-2">
+                      <span className="text-[10px] uppercase font-bold text-emerald-800 block">
+                        {bulkResult.dry_run ? "Ready" : "Imported"}
+                      </span>
+                      <span className="text-lg font-black text-emerald-900">
+                        {bulkResult.dry_run ? bulkResult.valid_rows : bulkResult.created}
+                      </span>
+                    </div>
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-2">
+                      <span className="text-[10px] uppercase font-bold text-slate-500 block">Already exist</span>
+                      <span className="text-lg font-black text-slate-800">{bulkResult.skipped_duplicates}</span>
+                    </div>
+                    <div className="bg-red-50 border border-red-200 rounded-xl p-2">
+                      <span className="text-[10px] uppercase font-bold text-red-700 block">Errors</span>
+                      <span className="text-lg font-black text-red-800">{bulkResult.errors.length}</span>
+                    </div>
+                  </div>
+
+                  {bulkResult.dry_run && bulkResult.preview.length > 0 && (
+                    <div>
+                      <p className="text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">Preview</p>
+                      <div className="border border-slate-200 rounded-xl divide-y divide-slate-100 max-h-40 overflow-y-auto">
+                        {bulkResult.preview.map((p, idx) => (
+                          <div key={idx} className="px-3 py-1.5 text-xs flex justify-between gap-2">
+                            <span className="font-semibold text-slate-800 truncate">{p.name}</span>
+                            <span className="text-slate-500 text-right shrink-0">
+                              {[p.chiefdom, p.district].filter(Boolean).join(", ")}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                      {bulkResult.valid_rows > bulkResult.preview.length && (
+                        <p className="text-[10px] text-slate-400 mt-1">
+                          + {bulkResult.valid_rows - bulkResult.preview.length} more
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {bulkResult.errors.length > 0 && (
+                    <div>
+                      <p className="text-[11px] font-bold text-red-700 uppercase tracking-wider mb-1">
+                        Rows that will be skipped
+                      </p>
+                      <div className="border border-red-200 bg-red-50/40 rounded-xl divide-y divide-red-100 max-h-40 overflow-y-auto">
+                        {bulkResult.errors.map((err) => (
+                          <div key={err.row} className="px-3 py-1.5 text-[11px]">
+                            <span className="font-bold text-red-800">Row {err.row}</span>
+                            {err.name && <span className="text-slate-700"> · {err.name}</span>}
+                            <span className="block text-red-700">{err.reason}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="pt-1 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowBulkModal(false)}
+                  className="flex-1 border border-slate-300 text-slate-700 font-semibold py-2.5 rounded-xl text-xs hover:bg-slate-50 transition"
+                >
+                  {bulkResult && !bulkResult.dry_run ? "Done" : "Cancel"}
+                </button>
+                {bulkResult?.dry_run && (
+                  <button
+                    type="button"
+                    disabled={bulkBusy || bulkResult.valid_rows === 0}
+                    onClick={() => runBulkUpload(bulkFile, false)}
+                    className="flex-1 bg-emerald-800 text-white font-semibold py-2.5 rounded-xl text-xs hover:bg-emerald-900 transition disabled:opacity-50"
+                  >
+                    Import {bulkResult.valid_rows} Seller{bulkResult.valid_rows === 1 ? "" : "s"}
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -304,6 +612,14 @@ export default function Seller() {
                 <div className="bg-slate-50 p-3 rounded-xl">
                   <p className="text-slate-400">Address</p>
                   <p className="font-semibold text-slate-800 mt-0.5">{selectedSeller.address}</p>
+                </div>
+                <div className="bg-slate-50 p-3 rounded-xl col-span-2">
+                  <p className="text-slate-400 flex items-center gap-1">
+                    <MapPin className="w-3 h-3" /> Section / Chiefdom / District
+                  </p>
+                  <p className="font-semibold text-slate-800 mt-0.5">
+                    {sellerLocation(selectedSeller) || "Not recorded"}
+                  </p>
                 </div>
               </div>
 

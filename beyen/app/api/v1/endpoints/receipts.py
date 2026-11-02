@@ -12,6 +12,7 @@ from app.core.permissions import require_role
 from app.models.user import UserRole
 from app.models.receipt import Receipt
 from app.schemas.receipt import ReceiptOut
+from app.services.visibility import scope_query
 
 router = APIRouter()
 
@@ -33,9 +34,7 @@ def list_receipts(
     Filterable by seller, type (cocoa|coffee|cola), date range.
     """
     from datetime import datetime
-    query = db.query(Receipt)
-    tenant_produce_id = current.get("produce_id") or current["id"]
-    query = query.filter(Receipt.produce_id == tenant_produce_id)
+    query = scope_query(db.query(Receipt), Receipt, current)
 
     if seller_id:
         query = query.filter(Receipt.seller_id == seller_id)
@@ -71,5 +70,7 @@ def get_receipt(
     tenant_produce_id = current.get("produce_id") or current["id"]
     if receipt.produce_id and receipt.produce_id != tenant_produce_id:
         raise HTTPException(status_code=403, detail="Access denied")
+    if not scope_query(db.query(Receipt).filter(Receipt.id == receipt.id), Receipt, current).first():
+        raise HTTPException(status_code=404, detail="Receipt not found")
     from app.services.receipt_helper import format_receipt_out
     return format_receipt_out(receipt, db)

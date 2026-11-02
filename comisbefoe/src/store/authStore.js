@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { clearOfflineApiCache } from "../offline/registerServiceWorker.js";
 
 const STORAGE_KEY = "comis_auth_session";
 
@@ -74,6 +75,7 @@ export const useAuthStore = create((set) => ({
   },
 
   logout: () => {
+    clearOfflineApiCache();
     try {
       localStorage.removeItem(STORAGE_KEY);
     } catch (e) {

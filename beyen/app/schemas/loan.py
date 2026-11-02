@@ -1,13 +1,14 @@
+from decimal import Decimal
 import uuid
 from datetime import date, datetime
 from typing import List
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 
 class LoanCreate(BaseModel):
     seller_id: uuid.UUID
     date: date
-    loan_taken: float
+    loan_taken: Decimal = Field(gt=0, max_digits=14, decimal_places=2)
     due_date: date | None = None
     notes: str | None = None
 
@@ -15,7 +16,7 @@ class LoanCreate(BaseModel):
 class LoanRepaymentCreate(BaseModel):
     loan_id: uuid.UUID
     date: date
-    amount_paid: float
+    amount_paid: Decimal = Field(gt=0, max_digits=14, decimal_places=2)
 
 
 class LoanRepaymentOut(BaseModel):

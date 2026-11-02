@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime
 from typing import Optional, List
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from app.models.seller import GenderEnum
 from app.models.transaction_status import TransactionStatus
 
@@ -13,6 +13,9 @@ class SellerBase(BaseModel):
     gender: GenderEnum = GenderEnum.other
     address: str = "Walk-in"
     contact: str | None = None
+    section: str | None = Field(default=None, max_length=120)
+    chiefdom: str | None = Field(default=None, max_length=120)
+    district: str | None = Field(default=None, max_length=120)
     is_random: bool = False
 
 
@@ -26,6 +29,9 @@ class SellerEdit(BaseModel):
     gender: GenderEnum | None = None
     address: str | None = None
     contact: str | None = None
+    section: str | None = Field(default=None, max_length=120)
+    chiefdom: str | None = Field(default=None, max_length=120)
+    district: str | None = Field(default=None, max_length=120)
     is_random: bool | None = None
 
 
@@ -79,3 +85,19 @@ class SellerBalanceOut(BaseModel):
     """Secretary-accessible — outstanding balance only (spec section 2.3)."""
     seller_id: str
     outstanding_balance: float
+
+
+class SellerImportError(BaseModel):
+    row: int            # spreadsheet row number (header is row 1)
+    name: str | None = None
+    reason: str
+
+
+class SellerImportResult(BaseModel):
+    dry_run: bool
+    total_rows: int
+    valid_rows: int
+    created: int
+    skipped_duplicates: int
+    errors: List[SellerImportError]
+    preview: List[SellerCreate] = []   # first rows that would be / were imported

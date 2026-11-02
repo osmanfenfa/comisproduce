@@ -4,7 +4,7 @@ Tests the 3-role permission model, produce transactions (cocoa, coffee, cola),
 loans, receipts, reports, settings, and audit trails.
 """
 import pytest
-from app.db.seed import ADMIN_CONTACT, ADMIN_PASSWORD
+from tests.conftest import ADMIN_CONTACT, ADMIN_PASSWORD
 
 
 def test_full_comis_workflow(client):
@@ -123,7 +123,12 @@ def test_full_comis_workflow(client):
     assert cocoa_txn["net_weight_kg"] == 37.32
     assert cocoa_txn["total_price"] == 1492.80
 
-    # Secretary rejects cocoa transaction with reason (Secretary has staff permissions)
+    # Station purchases are private until the secretary syncs: the Manager can't see it yet
+    assert client.get(f"/api/v1/cocoa/{cocoa_id}", headers=mgr_headers).status_code == 404
+    assert cocoa_id not in [t["id"] for t in client.get("/api/v1/cocoa/", headers=mgr_headers).json()]
+    assert client.post(f"/api/v1/cocoa/{cocoa_id}/approve", headers=mgr_headers).status_code == 404
+
+    # Secretary reviews at the station: rejects with reason
     resp = client.post(f"/api/v1/cocoa/{cocoa_id}/reject", headers=sec_headers, json={
         "reason": "Water percentage needs re-testing on sample B",
     })
@@ -144,22 +149,38 @@ def test_full_comis_workflow(client):
     assert resp.json()["net_weight_kg"] == 38.0
     assert resp.json()["total_price"] == 1520.0
 
-    # Secretary approves (Secretary can approve and issue out receipt)
+    # Secretary approves and issues the receipt at the station
     resp = client.post(f"/api/v1/cocoa/{cocoa_id}/approve", headers=sec_headers)
     assert resp.status_code == 200
     assert resp.json()["status"] == "approved"
 
-    # Secretary issues receipt
     resp = client.post(f"/api/v1/cocoa/{cocoa_id}/issue-receipt", headers=sec_headers)
     assert resp.status_code == 200
     receipt = resp.json()
     assert receipt["receipt_number"].startswith("COC-")
     assert receipt["gross_amount"] == 1520.0
     assert receipt["net_amount_paid"] == 1520.0
+    assert receipt["synced_at"] is None
 
-    # Verify transaction is now finalized
+    # Manager still sees nothing from the station; status shows 1 purchase waiting
+    assert receipt["id"] not in [r["id"] for r in client.get("/api/v1/receipts/", headers=mgr_headers).json()]
+    status = client.get("/api/v1/sync/status", headers=mgr_headers).json()
+    assert status[0]["unsynced_purchases"] == 1 and status[0]["last_synced_at"] is None
+
+    # End of day: secretary reviews the summary and syncs
+    summary = client.get("/api/v1/sync/summary", headers=sec_headers).json()
+    assert summary["purchases"] == 1 and summary["receipts_issued"] == 1
+    assert summary["cash_paid"] == 1520.0 and summary["not_receipted"] == 0
+    resp = client.post("/api/v1/sync/", headers=sec_headers)
+    assert resp.status_code == 200
+    assert resp.json()["synced_purchases"] == 1 and resp.json()["synced_receipts"] == 1
+
+    # Now the Manager sees the finalized purchase and its receipt
     resp = client.get(f"/api/v1/cocoa/{cocoa_id}", headers=mgr_headers)
     assert resp.json()["status"] == "finalized"
+    assert receipt["id"] in [r["id"] for r in client.get("/api/v1/receipts/", headers=mgr_headers).json()]
+    assert client.get("/api/v1/sync/status", headers=mgr_headers).json()[0]["unsynced_purchases"] == 0
+    assert client.get("/api/v1/sync/summary", headers=sec_headers).json()["purchases"] == 0
 
     # -----------------------------------------------------------------------
     # 4. Coffee & Cola Workflows (No moisture calculation, Bags recorded)
@@ -178,6 +199,11 @@ def test_full_comis_workflow(client):
     assert coffee_txn["total_price"] == 1500.0
     assert coffee_txn["net_weight_kg"] == 50.0
     coffee_id = coffee_txn["id"]
+
+    # Secretary syncs the pending purchase; the Manager reviews it from here
+    client.post("/api/v1/sync/", headers=sec_headers)
+    resp = client.post(f"/api/v1/coffee/{coffee_id}/approve", headers=sec_headers)
+    assert resp.status_code == 403, "synced purchases are the Manager's to review"
 
     # Manager approves & issues receipt
     client.post(f"/api/v1/coffee/{coffee_id}/approve", headers=mgr_headers)
@@ -201,6 +227,7 @@ def test_full_comis_workflow(client):
     assert cola_txn["bags"] == 1
     cola_id = cola_txn["id"]
 
+    client.post("/api/v1/sync/", headers=sec_headers)
     client.post(f"/api/v1/cola/{cola_id}/approve", headers=mgr_headers)
     resp = client.post(f"/api/v1/cola/{cola_id}/issue-receipt", headers=mgr_headers)
     assert resp.status_code == 200

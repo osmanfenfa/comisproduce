@@ -22,6 +22,7 @@ class ReceiptOut(BaseModel):
     issued_at: datetime
 
     is_admin_override: bool
+    synced_at: datetime | None = None
 
     # Produce Account / Station Details
     produce_id: uuid.UUID | None = None
@@ -35,6 +36,10 @@ class ReceiptOut(BaseModel):
     seller_contact: str | None = None
     seller_code: str | None = None
     is_random_seller: bool = False
+    seller_address: str | None = None
+    seller_section: str | None = None
+    seller_chiefdom: str | None = None
+    seller_district: str | None = None
 
     # Detail of Item (Produce scale weight, moisture %, deductions, price, bags)
     weight_kg: float | None = None

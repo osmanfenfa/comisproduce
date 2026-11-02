@@ -1,13 +1,20 @@
 import uuid
+from datetime import date
+from decimal import Decimal
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from app.models.receipt import Receipt
 from app.models.seller import Seller
 from app.models.user import User, UserRole
-from app.models.settings_model import AppSettings
+from app.models.loan import Loan, LoanRepayment
 from app.models.cocoa import CocoaTransaction
 from app.models.coffee import CoffeeTransaction
 from app.models.cola import ColaTransaction
+from app.models.transaction_status import TransactionStatus
 from app.schemas.receipt import ReceiptOut
+from app.services.audit import log_action
+from app.services.pricing import to_money, calculate_loan_balance
+from app.services.settings_service import find_settings
 
 
 def format_receipt_out(receipt: Receipt, db: Session) -> ReceiptOut:
@@ -19,7 +26,7 @@ def format_receipt_out(receipt: Receipt, db: Session) -> ReceiptOut:
     seller = db.query(Seller).filter(Seller.id == receipt.seller_id).first()
     issuer = db.query(User).filter(User.id == receipt.issued_by).first() if receipt.issued_by else None
     recorder = db.query(User).filter(User.id == receipt.recorded_by).first() if receipt.recorded_by else None
-    settings = db.query(AppSettings).filter(AppSettings.id == "singleton").first()
+    settings = find_settings(db, receipt.produce_id)
 
     # Produce Account
     st_name = (
@@ -95,6 +102,7 @@ def format_receipt_out(receipt: Receipt, db: Session) -> ReceiptOut:
         issued_by=receipt.issued_by,
         issued_at=receipt.issued_at,
         is_admin_override=receipt.is_admin_override,
+        synced_at=receipt.synced_at,
         produce_id=receipt.produce_id,
         station_name=st_name,
         business_name=biz_name,
@@ -104,6 +112,10 @@ def format_receipt_out(receipt: Receipt, db: Session) -> ReceiptOut:
         seller_contact=seller_contact,
         seller_code=seller_code,
         is_random_seller=is_random,
+        seller_address=seller.address if seller else None,
+        seller_section=getattr(seller, "section", None) if seller else None,
+        seller_chiefdom=getattr(seller, "chiefdom", None) if seller else None,
+        seller_district=getattr(seller, "district", None) if seller else None,
         weight_kg=weight_kg,
         bags=bags,
         water_percent=water_percent,
@@ -116,64 +128,132 @@ def format_receipt_out(receipt: Receipt, db: Session) -> ReceiptOut:
     )
 
 
-def issue_and_create_receipt(
+def _apply_loan_deduction(db: Session, txn, amount: Decimal, current: dict) -> list[dict]:
+    """
+    Post a loan deduction as repayments against the seller's open loans, oldest first.
+    Rows are locked so two receipts issued at once can't both spend the same balance.
+    Returns [{loan_id, amount}] for the audit log.
+    """
+    query = db.query(Loan).filter(Loan.seller_id == txn.seller_id, Loan.status != "cleared")
+    if getattr(txn, "produce_id", None):
+        query = query.filter(Loan.produce_id == txn.produce_id)
+    loans = query.order_by(Loan.date, Loan.created_at).with_for_update().all()
+
+    balances = [
+        (loan, calculate_loan_balance(loan.loan_taken, sum((r.amount_paid for r in loan.repayments), Decimal("0"))))
+        for loan in loans
+    ]
+    outstanding = sum((bal for _, bal in balances if bal > 0), Decimal("0"))
+    if amount > outstanding:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Loan deduction ({amount}) exceeds the seller's outstanding loan balance ({outstanding}).",
+        )
+
+    remaining = amount
+    applied = []
+    for loan, balance in balances:
+        if remaining <= 0:
+            break
+        if balance <= 0:
+            continue
+        portion = min(balance, remaining)
+        db.add(LoanRepayment(loan_id=loan.id, amount_paid=portion, date=date.today(), recorded_by=current["id"]))
+        if portion == balance:
+            loan.status = "cleared"
+        remaining -= portion
+        applied.append({"loan_id": str(loan.id), "amount": str(portion)})
+    return applied
+
+
+def finalize_and_issue_receipt(
     db: Session,
     txn,
     transaction_type: str,
     prefix: str,
     current: dict,
-    loan_deduction: float,
+    loan_deduction,
 ) -> ReceiptOut:
     """
-    Issue a new official receipt with complete produce account, seller, and item detail snapshots.
+    Step 2 of the approval flow, as one database transaction:
+      APPROVED -> FINALIZED, Receipt created, loan deduction posted as repayments,
+      audit entry written. Either all of it is saved or none of it is.
     """
-    is_admin_override = current["role"] == UserRole.system_admin.value
-    net_paid = round(txn.total_price - loan_deduction, 2)
+    deduction = to_money(loan_deduction or 0)
+    try:
+        # Re-read the transaction under a row lock so it can't be receipted twice concurrently
+        db.refresh(txn, with_for_update=True)
+        if txn.status != TransactionStatus.approved:
+            raise HTTPException(
+                status_code=400,
+                detail="Transaction must be in APPROVED state before a receipt can be issued. "
+                       "Approve the transaction first.",
+            )
+        gross = to_money(txn.total_price)
+        if deduction < 0:
+            raise HTTPException(status_code=400, detail="Loan deduction cannot be negative.")
+        if deduction > gross:
+            raise HTTPException(status_code=400, detail="Loan deduction cannot exceed the gross amount.")
 
-    issuer = db.query(User).filter(User.id == current["id"]).first()
-    recorder = db.query(User).filter(User.id == txn.created_by).first() if txn.created_by else None
-    seller = db.query(Seller).filter(Seller.id == txn.seller_id).first()
-    settings = db.query(AppSettings).filter(AppSettings.id == "singleton").first()
+        applied = _apply_loan_deduction(db, txn, deduction, current) if deduction > 0 else []
 
-    st_name = (
-        (issuer.station_name if issuer else None)
-        or (settings.station_name if settings else None)
-        or "COMIS Produce Station"
-    )
-    biz_name = (issuer.business_name if issuer else None) or st_name
-    biz_addr = (issuer.address if issuer else None) or ""
-    biz_phone = (issuer.phone_number if issuer else None) or (issuer.contact if issuer else "")
+        is_admin_override = current["role"] == UserRole.system_admin.value
+        issuer = db.query(User).filter(User.id == current["id"]).first()
+        recorder = db.query(User).filter(User.id == txn.created_by).first() if txn.created_by else None
+        seller = db.query(Seller).filter(Seller.id == txn.seller_id).first()
+        tenant_produce_id = getattr(txn, "produce_id", None) or current.get("produce_id") or current["id"]
+        settings = find_settings(db, tenant_produce_id)
 
-    receipt = Receipt(
-        receipt_number=f"{prefix}-{str(txn.id)[:8].upper()}",
-        transaction_type=transaction_type,
-        transaction_id=txn.id,
-        seller_id=txn.seller_id,
-        gross_amount=txn.total_price,
-        loan_deduction=loan_deduction,
-        net_amount_paid=net_paid,
-        recorded_by=txn.created_by,
-        issued_by=current["id"],
-        is_admin_override=is_admin_override,
-        produce_id=getattr(txn, "produce_id", None) or current.get("produce_id") or current["id"],
-        station_name=getattr(txn, "station_name", None) or st_name,
-        business_name=biz_name,
-        business_address=biz_addr,
-        business_phone=biz_phone,
-        weight_kg=txn.weight_kg,
-        bags=getattr(txn, "bags", 1),
-        water_percent=getattr(txn, "water_percent", None),
-        standard_percent=getattr(txn, "standard_percent", None),
-        net_weight_kg=getattr(txn, "net_weight_kg", txn.weight_kg),
-        price_per_kg=txn.price_per_kg,
-        seller_name_snapshot=seller.name if seller else "Unknown Seller",
-        seller_contact_snapshot=seller.contact if seller else None,
-        recorded_by_name=recorder.name if recorder else None,
-        issued_by_name=issuer.name if issuer else None,
-    )
-    db.add(receipt)
-    db.commit()
+        st_name = (
+            (issuer.station_name if issuer else None)
+            or (settings.station_name if settings else None)
+            or "COMIS Produce Station"
+        )
+        biz_name = (issuer.business_name if issuer else None) or st_name
+        biz_addr = (issuer.address if issuer else None) or ""
+        biz_phone = (issuer.phone_number if issuer else None) or (issuer.contact if issuer else "")
+
+        txn.status = TransactionStatus.finalized
+        receipt = Receipt(
+            receipt_number=f"{prefix}-{txn.id.hex[:12].upper()}",
+            transaction_type=transaction_type,
+            transaction_id=txn.id,
+            seller_id=txn.seller_id,
+            gross_amount=gross,
+            loan_deduction=deduction,
+            net_amount_paid=gross - deduction,
+            recorded_by=txn.created_by,
+            issued_by=current["id"],
+            is_admin_override=is_admin_override,
+            synced_at=txn.synced_at,
+            produce_id=tenant_produce_id,
+            station_name=getattr(txn, "station_name", None) or st_name,
+            business_name=biz_name,
+            business_address=biz_addr,
+            business_phone=biz_phone,
+            weight_kg=txn.weight_kg,
+            bags=getattr(txn, "bags", 1),
+            water_percent=getattr(txn, "water_percent", None),
+            standard_percent=getattr(txn, "standard_percent", None),
+            net_weight_kg=getattr(txn, "net_weight_kg", txn.weight_kg),
+            price_per_kg=txn.price_per_kg,
+            seller_name_snapshot=seller.name if seller else "Unknown Seller",
+            seller_contact_snapshot=seller.contact if seller else None,
+            recorded_by_name=recorder.name if recorder else None,
+            issued_by_name=issuer.name if issuer else None,
+        )
+        db.add(receipt)
+        db.flush()
+
+        action = "issue_receipt_admin_override" if is_admin_override else "issue_receipt"
+        log_action(db, current["id"], current["role"], action, "Receipt", receipt.id,
+                   new_value={"transaction_id": str(txn.id), "net_amount_paid": str(receipt.net_amount_paid),
+                              "loan_deduction": str(deduction), "loan_repayments": applied},
+                   commit=False)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
     db.refresh(receipt)
-
     return format_receipt_out(receipt, db)
-

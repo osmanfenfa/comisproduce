@@ -2,10 +2,11 @@ import pytest
 from app.models.user import User, UserStatus, UserRole
 from app.core.security import hash_password
 from app.services.email import SENT_EMAILS_BUFFER
+from tests.conftest import ADMIN_CONTACT, ADMIN_PASSWORD
 
 def test_login_returns_produce_name(client):
     # Admin login with seeded credentials
-    res = client.post("/api/v1/auth/login", json={"contact": "admin@comis.local", "password": "ComisAdmin2024!"})
+    res = client.post("/api/v1/auth/login", json={"contact": ADMIN_CONTACT, "password": ADMIN_PASSWORD})
     assert res.status_code == 200, res.text
     data = res.json()
     assert "access_token" in data
@@ -41,8 +42,14 @@ def test_forgot_password_flow(client, db):
     token = sent["reset_token"]
     assert len(code) == 6
 
-    # Test resetting with code
-    reset_res = client.post("/api/v1/auth/reset-password", json={"token": code, "new_password": "newpassword123"})
+    # A 6-digit code alone is not enough: the email must accompany it
+    no_email = client.post("/api/v1/auth/reset-password", json={"token": code, "new_password": "newpassword123"})
+    assert no_email.status_code == 400
+
+    # Test resetting with code + email
+    reset_res = client.post("/api/v1/auth/reset-password", json={
+        "token": code, "email": "resetuser@comis.org", "new_password": "newpassword123",
+    })
     assert reset_res.status_code == 200
     assert "successfully reset" in reset_res.json()["message"]
 
@@ -50,14 +57,85 @@ def test_forgot_password_flow(client, db):
     login_res = client.post("/api/v1/auth/login", json={"contact": "resetuser@comis.org", "password": "newpassword123"})
     assert login_res.status_code == 200
 
+    # Code and link are single-use
+    reuse = client.post("/api/v1/auth/reset-password", json={"token": token, "new_password": "anotherpass123"})
+    assert reuse.status_code == 400
+
+    # Reset codes are stored hashed, never in plain text
+    db.refresh(test_user)
+    assert test_user.reset_password_token is None
+
     # verify invalid token fails
-    fail_res = client.post("/api/v1/auth/reset-password", json={"token": "999999", "new_password": "short"})
+    fail_res = client.post("/api/v1/auth/reset-password", json={"token": "999999", "email": "resetuser@comis.org", "new_password": "longenough1"})
     assert fail_res.status_code == 400
+
+
+def test_reset_link_token_and_hashed_storage(client, db):
+    SENT_EMAILS_BUFFER.clear()
+    user = User(name="Link User", contact="linkuser@comis.org", email="linkuser@comis.org",
+                password_hash=hash_password("OldPassword123!"), role=UserRole.produce_manager,
+                status=UserStatus.active)
+    db.add(user)
+    db.commit()
+
+    client.post("/api/v1/auth/forgot-password", json={"email": "linkuser@comis.org"})
+    sent = SENT_EMAILS_BUFFER[-1]
+    db.refresh(user)
+    assert sent["reset_code"] not in user.reset_password_token
+    assert sent["reset_token"] not in user.reset_password_token
+
+    res = client.post("/api/v1/auth/reset-password", json={"token": sent["reset_token"], "new_password": "brandnewpass1"})
+    assert res.status_code == 200
+    assert client.post("/api/v1/auth/login", json={"contact": "linkuser@comis.org", "password": "brandnewpass1"}).status_code == 200
+
+
+def test_reset_code_burned_after_too_many_wrong_guesses(client, db):
+    SENT_EMAILS_BUFFER.clear()
+    user = User(name="Guess User", contact="guessuser@comis.org", email="guessuser@comis.org",
+                password_hash=hash_password("OldPassword123!"), role=UserRole.produce_manager,
+                status=UserStatus.active)
+    db.add(user)
+    db.commit()
+
+    client.post("/api/v1/auth/forgot-password", json={"email": "guessuser@comis.org"})
+    real_code = SENT_EMAILS_BUFFER[-1]["reset_code"]
+    wrong = "100000" if real_code != "100000" else "100001"
+    for _ in range(5):
+        r = client.post("/api/v1/auth/reset-password", json={"token": wrong, "email": "guessuser@comis.org", "new_password": "whatever123"})
+        assert r.status_code == 400
+
+    # The real code no longer works after 5 wrong guesses
+    r = client.post("/api/v1/auth/reset-password", json={"token": real_code, "email": "guessuser@comis.org", "new_password": "whatever123"})
+    assert r.status_code == 400
+
+
+def test_reset_password_rate_limited_per_ip(client):
+    for _ in range(10):
+        client.post("/api/v1/auth/reset-password", json={"token": "x" * 40, "new_password": "whatever123"})
+    r = client.post("/api/v1/auth/reset-password", json={"token": "x" * 40, "new_password": "whatever123"})
+    assert r.status_code == 429
+
+
+def test_forgot_password_rate_limited(client):
+    statuses = [client.post("/api/v1/auth/forgot-password", json={"email": "nobody@comis.org"}).status_code
+                for _ in range(4)]
+    assert statuses[:3] == [200, 200, 200]
+    assert statuses[3] == 429
+
+
+def test_login_locked_after_repeated_failures(client):
+    for _ in range(5):
+        r = client.post("/api/v1/auth/login", json={"contact": ADMIN_CONTACT, "password": "wrong-password"})
+        assert r.status_code == 401
+    # Even the right password is refused while the account is locked out
+    r = client.post("/api/v1/auth/login", json={"contact": ADMIN_CONTACT, "password": ADMIN_PASSWORD})
+    assert r.status_code == 429
+
 
 def test_google_auth_flow(client, db):
     # 1. On login page (mode="signin"), user does not exist -> 404
     signin_res = client.post("/api/v1/auth/google", json={
-        "email": "newmanager@example.com",
+        "access_token": "google-ok:google-123456:newmanager@example.com",
         "mode": "signin"
     })
     assert signin_res.status_code == 404
@@ -65,7 +143,7 @@ def test_google_auth_flow(client, db):
 
     # 2. On signup page (mode="signup"), terms not agreed -> 400
     terms_res = client.post("/api/v1/auth/google", json={
-        "email": "newmanager@example.com",
+        "access_token": "google-ok:google-123456:newmanager@example.com",
         "mode": "signup",
         "terms_accepted": False
     })
@@ -74,9 +152,8 @@ def test_google_auth_flow(client, db):
 
     # 3. On signup page (mode="signup"), terms agreed -> registers as pending approval -> 403
     res = client.post("/api/v1/auth/google", json={
-        "email": "newmanager@example.com",
+        "access_token": "google-ok:google-123456:newmanager@example.com",
         "name": "Jane Doe",
-        "google_id": "google-123456",
         "produce_name": "Doe Organic Produce",
         "mode": "signup",
         "terms_accepted": True
@@ -87,14 +164,14 @@ def test_google_auth_flow(client, db):
     # System admin approves user
     new_user = db.query(User).filter(User.google_id == "google-123456").first()
     assert new_user is not None
+    assert new_user.email == "newmanager@example.com"
     assert new_user.business_name == "Doe Organic Produce"
     new_user.status = UserStatus.active
     db.commit()
 
     # Login again with Google (mode="signin")
     login_res = client.post("/api/v1/auth/google", json={
-        "email": "newmanager@example.com",
-        "google_id": "google-123456",
+        "access_token": "google-ok:google-123456:newmanager@example.com",
         "mode": "signin"
     })
     assert login_res.status_code == 200
@@ -103,9 +180,27 @@ def test_google_auth_flow(client, db):
     assert data["role"] == "produce_manager"
 
 
+def test_google_auth_rejects_unverified_claims(client):
+    """The old endpoint accepted a bare email; that must never log anyone in again."""
+    # Bare email, no token
+    res = client.post("/api/v1/auth/google", json={"email": ADMIN_CONTACT, "mode": "signin"})
+    assert res.status_code == 400
+
+    # Forged token
+    res = client.post("/api/v1/auth/google", json={"access_token": "forged", "email": ADMIN_CONTACT, "mode": "signin"})
+    assert res.status_code == 401
+
+    # Client-supplied email is ignored: identity comes from the verified token only
+    res = client.post("/api/v1/auth/google", json={
+        "access_token": "google-ok:attacker-sub:attacker@example.com",
+        "email": ADMIN_CONTACT, "google_id": "whatever", "mode": "signin",
+    })
+    assert res.status_code == 404
+
+
 def test_admin_suspend_delete_and_uniqueness(client, db):
     # Admin logs in
-    res = client.post("/api/v1/auth/login", json={"contact": "admin@comis.local", "password": "ComisAdmin2024!"})
+    res = client.post("/api/v1/auth/login", json={"contact": ADMIN_CONTACT, "password": ADMIN_PASSWORD})
     assert res.status_code == 200
     admin_token = res.json()["access_token"]
     admin_headers = {"Authorization": f"Bearer {admin_token}"}
@@ -129,7 +224,7 @@ def test_admin_suspend_delete_and_uniqueness(client, db):
     # 1. Uniqueness check: Cannot register manager with existing admin's contact/email
     res = client.post("/api/v1/users/managers", json={
         "name": "Clash Manager",
-        "contact": "admin@comis.local",
+        "contact": ADMIN_CONTACT,
         "password": "Password123!",
     })
     assert res.status_code == 409
@@ -189,7 +284,7 @@ def test_admin_suspend_delete_and_uniqueness(client, db):
     assert res.status_code == 409
 
     # 4. Admin cannot delete self -> 400
-    admin_user = db.query(User).filter(User.contact == "admin@comis.local").first()
+    admin_user = db.query(User).filter(User.contact == ADMIN_CONTACT).first()
     res = client.delete(f"/api/v1/users/{admin_user.id}", headers=admin_headers)
     assert res.status_code == 400
 

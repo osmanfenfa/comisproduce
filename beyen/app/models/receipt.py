@@ -1,8 +1,10 @@
 import uuid
+from decimal import Decimal
 from datetime import datetime
 from sqlalchemy import String, Float, Integer, DateTime, ForeignKey, Boolean
 from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
+from app.models.types import Money
 
 
 class Receipt(Base):
@@ -15,9 +17,9 @@ class Receipt(Base):
     seller_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("sellers.id"))
 
     # Financial fields (spec section 11)
-    gross_amount: Mapped[float] = mapped_column(Float, nullable=False)
-    loan_deduction: Mapped[float] = mapped_column(Float, default=0.0, nullable=True)
-    net_amount_paid: Mapped[float] = mapped_column(Float, nullable=False)
+    gross_amount: Mapped[Decimal] = mapped_column(Money, nullable=False)
+    loan_deduction: Mapped[Decimal] = mapped_column(Money, default=Decimal("0.00"), nullable=True)
+    net_amount_paid: Mapped[Decimal] = mapped_column(Money, nullable=False)
 
     # Who did what (spec section 11: recorded_by = Secretary, issued_by = Manager)
     recorded_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=True)
@@ -37,7 +39,7 @@ class Receipt(Base):
     water_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
     standard_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
     net_weight_kg: Mapped[float | None] = mapped_column(Float, nullable=True)
-    price_per_kg: Mapped[float | None] = mapped_column(Float, nullable=True)
+    price_per_kg: Mapped[Decimal | None] = mapped_column(Money, nullable=True)
 
     # Seller Snapshot (name and number saved, especially for random sellers)
     seller_name_snapshot: Mapped[str | None] = mapped_column(String(120), nullable=True)
@@ -49,6 +51,9 @@ class Receipt(Base):
 
     # Admin emergency override tracking (spec section 5)
     is_admin_override: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # Mirrors the transaction: receipts issued at a station are hidden from the Manager until synced
+    synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
 
     from sqlalchemy.orm import relationship
     seller = relationship("Seller")

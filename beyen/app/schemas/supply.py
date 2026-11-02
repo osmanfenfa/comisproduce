@@ -1,20 +1,21 @@
+from decimal import Decimal
 import uuid
 from datetime import date as dt_date, datetime as dt_datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class SupplyCreate(BaseModel):
     commodity: str = "cocoa"  # cocoa | coffee | cola
-    total_kg: float
-    total_bags: int
-    water_percent: float = 0.0
+    total_kg: float = Field(gt=0)
+    total_bags: int = Field(ge=0)
+    water_percent: float = Field(default=0.0, ge=0, le=100)
     company_name: str
     company_address: str | None = None
     company_contact: str | None = None
     witness_name: str
     date: dt_date | None = None
-    price_per_kg: float | None = None
-    total_value: float | None = None
+    price_per_kg: Decimal | None = Field(default=None, ge=0, max_digits=14, decimal_places=2)
+    total_value: Decimal | None = Field(default=None, ge=0, max_digits=14, decimal_places=2)
     notes: str | None = None
 
 

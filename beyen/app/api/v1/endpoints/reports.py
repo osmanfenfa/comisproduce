@@ -13,10 +13,10 @@ from datetime import date
 from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from app.db.session import get_db
 from app.core.permissions import require_role
-from app.models.user import UserRole
+from app.models.user import User, UserRole
 from app.models.cocoa import CocoaTransaction
 from app.models.coffee import CoffeeTransaction
 from app.models.cola import ColaTransaction
@@ -24,7 +24,8 @@ from app.models.loan import Loan
 from app.models.receipt import Receipt
 from app.models.transaction_status import TransactionStatus
 from app.services.pricing import calculate_loan_balance
-from app.services.report_export import export_to_pdf, export_to_excel
+from app.services.visibility import scope_query
+from app.services.report_export import export_produce_pdf, export_produce_excel
 
 router = APIRouter()
 
@@ -34,17 +35,8 @@ MANAGER_ONLY = require_role(UserRole.produce_manager)
 
 def _filter_produce(model, db, current, status=None, seller_id=None,
                     date_from=None, date_to=None):
-    query = db.query(model)
-    tenant_produce_id = current.get("produce_id") or current["id"]
-    query = query.filter(model.produce_id == tenant_produce_id)
-    if current["role"] == UserRole.produce_secretary.value:
-        if current.get("station_name"):
-            query = query.filter(
-                (model.station_name == current["station_name"]) |
-                (model.created_by == current["id"])
-            )
-        else:
-            query = query.filter(model.created_by == current["id"])
+    query = db.query(model).options(joinedload(model.seller))
+    query = scope_query(query, model, current)   # managers only see synced station purchases
     if seller_id:
         query = query.filter(model.seller_id == seller_id)
     if status:
@@ -57,6 +49,7 @@ def _filter_produce(model, db, current, status=None, seller_id=None,
 
 
 def _txn_to_dict(txn, commodity: str) -> dict:
+    seller = txn.seller
     d = {
         "commodity": commodity,
         "id": str(txn.id),
@@ -64,14 +57,54 @@ def _txn_to_dict(txn, commodity: str) -> dict:
         "date": str(txn.date),
         "weight_kg": txn.weight_kg,
         "bags": getattr(txn, "bags", 1),
+        "price_per_kg": txn.price_per_kg,
         "total_price": txn.total_price,
         "status": txn.status.value,
         "created_by": str(txn.created_by),
+        "station_name": txn.station_name,
+        "seller_name": seller.name if seller else None,
+        "seller_code": seller.seller_id if seller else None,
+        "seller_contact": seller.contact if seller else None,
+        "seller_address": seller.address if seller else None,
+        "seller_section": seller.section if seller else None,
+        "seller_chiefdom": seller.chiefdom if seller else None,
+        "seller_district": seller.district if seller else None,
     }
     if hasattr(txn, "water_percent"):
         d["water_percent"] = txn.water_percent
         d["net_weight_kg"] = txn.net_weight_kg
     return d
+
+
+def _collect_rows(db, current, commodity, status, seller_id, date_from, date_to) -> list[dict]:
+    rows = []
+    for name, model in (("cocoa", CocoaTransaction), ("coffee", CoffeeTransaction), ("cola", ColaTransaction)):
+        if not commodity or commodity == name:
+            rows += [_txn_to_dict(t, name) for t in
+                     _filter_produce(model, db, current, status, seller_id, date_from, date_to)]
+    rows.sort(key=lambda r: r["date"], reverse=True)
+    return rows
+
+
+def _add_traceability(db, rows: list[dict]) -> None:
+    """Attach receipt number / payment and staff names to each row (for exports)."""
+    if not rows:
+        return
+    txn_ids = [uuid.UUID(r["id"]) for r in rows]
+    receipts = {str(r.transaction_id): r for r in db.query(Receipt).filter(Receipt.transaction_id.in_(txn_ids))}
+    user_ids = {uuid.UUID(r["created_by"]) for r in rows} | {r.issued_by for r in receipts.values() if r.issued_by}
+    names = {str(u.id): u.name for u in db.query(User.id, User.name).filter(User.id.in_(user_ids))}
+    for r in rows:
+        rec = receipts.get(r["id"])
+        r["receipt_number"] = rec.receipt_number if rec else None
+        r["issued_at"] = rec.issued_at if rec else None
+        r["loan_deduction"] = rec.loan_deduction if rec else None
+        r["net_amount_paid"] = rec.net_amount_paid if rec else None
+        r["recorded_by_name"] = names.get(r["created_by"])
+        r["issued_by_name"] = names.get(str(rec.issued_by)) if rec else None
+        r["moisture_deduction_kg"] = (
+            round(r["weight_kg"] - r["net_weight_kg"], 2) if r.get("net_weight_kg") is not None else None
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -89,16 +122,7 @@ def produce_report(
     current=Depends(ANY_STAFF),
 ):
     """JSON produce report, filterable by commodity, status, seller, date range."""
-    rows = []
-    if not commodity or commodity == "cocoa":
-        rows += [_txn_to_dict(t, "cocoa") for t in
-                 _filter_produce(CocoaTransaction, db, current, status, seller_id, date_from, date_to)]
-    if not commodity or commodity == "coffee":
-        rows += [_txn_to_dict(t, "coffee") for t in
-                 _filter_produce(CoffeeTransaction, db, current, status, seller_id, date_from, date_to)]
-    if not commodity or commodity == "cola":
-        rows += [_txn_to_dict(t, "cola") for t in
-                 _filter_produce(ColaTransaction, db, current, status, seller_id, date_from, date_to)]
+    rows = _collect_rows(db, current, commodity, status, seller_id, date_from, date_to)
 
     total_value = round(sum(r["total_price"] for r in rows), 2)
     total_weight = round(sum(r["weight_kg"] for r in rows), 2)
@@ -121,35 +145,46 @@ def produce_report_export(
     db: Session = Depends(get_db),
     current=Depends(MANAGER_ONLY),
 ):
-    """Export produce report as PDF or Excel. Manager only. (spec section 12)"""
-    rows = []
-    if not commodity or commodity == "cocoa":
-        rows += [_txn_to_dict(t, "cocoa") for t in
-                 _filter_produce(CocoaTransaction, db, current, status, seller_id, date_from, date_to)]
-    if not commodity or commodity == "coffee":
-        rows += [_txn_to_dict(t, "coffee") for t in
-                 _filter_produce(CoffeeTransaction, db, current, status, seller_id, date_from, date_to)]
-    if not commodity or commodity == "cola":
-        rows += [_txn_to_dict(t, "cola") for t in
-                 _filter_produce(ColaTransaction, db, current, status, seller_id, date_from, date_to)]
+    """Export produce report as PDF or Excel. Manager only. (spec section 12)
 
-    title = "COMIS Produce Report"
-    columns = ["commodity", "date", "seller_id", "weight_kg", "total_price", "status", "created_by"]
+    Every row carries the seller's full identity and location (section, chiefdom,
+    district) plus the receipt number and staff names, so each bag can be traced
+    back to the farmer and the transaction that paid for it.
+    """
+    rows = _collect_rows(db, current, commodity, status, seller_id, date_from, date_to)
+    _add_traceability(db, rows)
+
+    manager = db.query(User).filter(User.id == current["id"]).first()
+    business = (manager.business_name or manager.station_name) if manager else None
+    filters = []
+    if commodity:
+        filters.append(f"Commodity: {commodity.title()}")
+    if status:
+        filters.append(f"Status: {status.value.title()}")
+    if seller_id and rows:
+        filters.append(f"Seller: {rows[0]['seller_name']} ({rows[0]['seller_code']})")
+    period = f"{date_from or 'start'} to {date_to or 'today'}" if (date_from or date_to) else "All dates"
+    meta = {
+        "business": business or "Produce Buying Station",
+        "period": period,
+        "filters": ", ".join(filters) or "None",
+        "generated_by": current.get("name") or "",
+    }
+    stamp = date.today().isoformat()
 
     if format == "pdf":
-        data = export_to_pdf(rows, title, columns)
+        data = export_produce_pdf(rows, meta)
         return Response(
             content=data,
             media_type="application/pdf",
-            headers={"Content-Disposition": "attachment; filename=produce_report.pdf"},
+            headers={"Content-Disposition": f"attachment; filename=COMIS_Produce_Report_{stamp}.pdf"},
         )
-    else:
-        data = export_to_excel(rows, title, columns)
-        return Response(
-            content=data,
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": "attachment; filename=produce_report.xlsx"},
-        )
+    data = export_produce_excel(rows, meta)
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename=COMIS_Produce_Report_{stamp}.xlsx"},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -220,7 +255,7 @@ def seller_statement(
     receipt_query = db.query(Receipt).filter(Receipt.seller_id == seller_id)
     tenant_produce_id = current.get("produce_id") or current["id"]
     loan_query = loan_query.filter(Loan.produce_id == tenant_produce_id)
-    receipt_query = receipt_query.filter(Receipt.produce_id == tenant_produce_id)
+    receipt_query = receipt_query.filter(Receipt.produce_id == tenant_produce_id, Receipt.synced_at.isnot(None))
 
     loans = loan_query.all()
     loan_rows = []
