@@ -299,12 +299,17 @@ export default function Reports() {
                           {t.commodity}
                         </span>
                         <span className="font-bold text-slate-900">
-                          {sellerObj?.name || "Seller"}
+                          {t.seller_name || sellerObj?.name || "Seller"}
                         </span>
                       </div>
                       <p className="text-[11px] text-slate-400 mt-1">
                         {t.date} · {t.weight_kg} kg @ Nle {t.price_per_kg}/kg
                       </p>
+                      {(t.seller_chiefdom || t.seller_district) && (
+                        <p className="text-[11px] text-slate-500">
+                          {[t.seller_chiefdom, t.seller_district].filter(Boolean).join(", ")}
+                        </p>
+                      )}
                     </div>
                     <div className="text-right">
                       <span className="font-black text-slate-900 block text-sm">

@@ -189,8 +189,8 @@ export default function Login({ initialMode = "signin" }) {
       setForgotError("Passwords do not match.");
       return;
     }
-    if (newPassword.length < 6) {
-      setForgotError("Password must be at least 6 characters long.");
+    if (newPassword.length < 8) {
+      setForgotError("Password must be at least 8 characters long.");
       return;
     }
 
@@ -198,6 +198,8 @@ export default function Login({ initialMode = "signin" }) {
     try {
       await client.post("/auth/reset-password", {
         token: forgotCode.trim(),
+        // The 6-digit code is only accepted together with the email it was sent to
+        email: forgotEmail.trim() || undefined,
         new_password: newPassword,
       });
 
@@ -940,7 +942,7 @@ export default function Login({ initialMode = "signin" }) {
                 {/* New Password */}
                 <div>
                   <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                    New Password (min. 6 characters)
+                    New Password (min. 8 characters)
                   </label>
                   <input
                     type={showForgotPass ? "text" : "password"}

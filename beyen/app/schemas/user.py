@@ -94,14 +94,12 @@ class ForgotPasswordRequest(BaseModel):
 class ResetPasswordRequest(BaseModel):
     token: str
     new_password: str
+    email: str | None = None  # required when token is the 6-digit code
 
 
 class GoogleAuthRequest(BaseModel):
-    credential: str | None = None
-    access_token: str | None = None
-    email: str | None = None
-    name: str | None = None
-    google_id: str | None = None
+    access_token: str | None = None   # verified with Google; the only source of identity
+    name: str | None = None           # display name for new sign-ups
     produce_name: str | None = None
     mode: str | None = "signin"  # "signin" or "signup"
     terms_accepted: bool | None = False

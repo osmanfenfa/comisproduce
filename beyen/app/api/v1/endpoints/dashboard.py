@@ -26,7 +26,8 @@ router = APIRouter()
 ANY_STAFF = require_role(UserRole.produce_manager, UserRole.system_admin, UserRole.produce_secretary)
 
 
-def _txn_today_stats(model, db: Session, created_by_filter=None, produce_id_filter=None, station_filter=None):
+def _txn_today_stats(model, db: Session, created_by_filter=None, produce_id_filter=None, station_filter=None,
+                     synced_only=False):
     """Count and sum today's transactions for a commodity model with commodity-specific metrics."""
     today = date.today()
     query = db.query(model).filter(func.date(model.created_at) == today)
@@ -36,6 +37,8 @@ def _txn_today_stats(model, db: Session, created_by_filter=None, produce_id_filt
         query = query.filter(model.station_name == station_filter)
     if created_by_filter:
         query = query.filter(model.created_by == created_by_filter)
+    if synced_only:
+        query = query.filter(model.synced_at.isnot(None))
     txns = query.all()
 
     total_weight = round(sum(t.weight_kg for t in txns), 2)
@@ -103,19 +106,26 @@ def dashboard_summary(db: Session = Depends(get_db), current=Depends(ANY_STAFF))
         }
 
     if role == UserRole.produce_manager.value:
-        cocoa = _txn_today_stats(CocoaTransaction, db, produce_id_filter=tenant_produce_id)
-        coffee = _txn_today_stats(CoffeeTransaction, db, produce_id_filter=tenant_produce_id)
-        cola = _txn_today_stats(ColaTransaction, db, produce_id_filter=tenant_produce_id)
+        # The Manager sees station activity only once the secretary has synced it
+        cocoa = _txn_today_stats(CocoaTransaction, db, produce_id_filter=tenant_produce_id, synced_only=True)
+        coffee = _txn_today_stats(CoffeeTransaction, db, produce_id_filter=tenant_produce_id, synced_only=True)
+        cola = _txn_today_stats(ColaTransaction, db, produce_id_filter=tenant_produce_id, synced_only=True)
+        unsynced_station_purchases = sum(
+            db.query(func.count(m.id)).filter(m.produce_id == tenant_produce_id, m.synced_at.is_(None)).scalar() or 0
+            for m in (CocoaTransaction, CoffeeTransaction, ColaTransaction)
+        )
 
         pending_total = (cocoa["pending"] + coffee["pending"] + cola["pending"])
         receipts_today = (
             db.query(Receipt)
-            .filter(Receipt.produce_id == tenant_produce_id, func.date(Receipt.issued_at) == today)
+            .filter(Receipt.produce_id == tenant_produce_id, func.date(Receipt.issued_at) == today,
+                    Receipt.synced_at.isnot(None))
             .count()
         )
         cash_out_today = round(
             db.query(func.sum(Receipt.net_amount_paid))
-            .filter(Receipt.produce_id == tenant_produce_id, func.date(Receipt.issued_at) == today)
+            .filter(Receipt.produce_id == tenant_produce_id, func.date(Receipt.issued_at) == today,
+                    Receipt.synced_at.isnot(None))
             .scalar() or 0.0, 2
         )
         outstanding_loans = (
@@ -133,6 +143,7 @@ def dashboard_summary(db: Session = Depends(get_db), current=Depends(ANY_STAFF))
             "cola": cola,
             "pending_transactions_total": pending_total,
             "receipts_issued_today": receipts_today,
+            "unsynced_station_purchases": unsynced_station_purchases,
             "cash_paid_out_today": cash_out_today,
             "outstanding_loans": outstanding_loans,
             "overdue_loans": overdue_loans,

@@ -1,8 +1,13 @@
-import React from "react";
-import { Printer, X, Building, Phone, MapPin } from "lucide-react";
+import { Printer } from "lucide-react";
+import { useReceiptPrinter } from "../../hooks/useReceiptPrinter.jsx";
 
 export default function OfficialReceiptModal({ receipt, onClose }) {
+  const { printReceipts, printSheet } = useReceiptPrinter();
   if (!receipt) return null;
+
+  const sellerLocation = [receipt.seller_section, receipt.seller_chiefdom, receipt.seller_district]
+    .filter(Boolean)
+    .join(", ");
 
   const isMoistureCommodity = receipt.transaction_type === "cocoa";
 
@@ -14,9 +19,10 @@ export default function OfficialReceiptModal({ receipt, onClose }) {
     <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-3 sm:p-6 backdrop-blur-xs overflow-y-auto">
       <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl p-4 sm:p-6 space-y-4 my-auto border border-slate-300">
         
-        {/* Printable Bank Receipt Voucher (Landscape Format) */}
+        {printSheet}
+
+        {/* On-screen voucher; printing uses the compact slip in ReceiptPrintSheet */}
         <div
-          id="printable-official-receipt"
           className="bg-white text-slate-900 border-2 border-dashed border-slate-400 p-4 sm:p-5 rounded-xl space-y-3 font-sans text-xs"
         >
           {/* Top Voucher Header Bar */}
@@ -86,6 +92,12 @@ export default function OfficialReceiptModal({ receipt, onClose }) {
                       <span className="font-mono font-bold text-slate-800">
                         {receipt.seller_code}
                       </span>
+                    </div>
+                  )}
+                  {sellerLocation && (
+                    <div>
+                      <span className="text-slate-400 text-[10px] block">Section / Chiefdom / District:</span>
+                      <span className="font-medium text-slate-700">{sellerLocation}</span>
                     </div>
                   )}
                   {receipt.station_name && (
@@ -235,11 +247,11 @@ export default function OfficialReceiptModal({ receipt, onClose }) {
         <div className="flex gap-2 pt-1">
           <button
             type="button"
-            onClick={() => window.print()}
+            onClick={() => printReceipts([receipt])}
             className="flex-1 bg-slate-900 hover:bg-black text-white py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs"
           >
             <Printer className="w-4 h-4" />
-            <span>Print Bank Receipt</span>
+            <span>Print Receipt (¼ A4)</span>
           </button>
           <button
             type="button"

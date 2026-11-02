@@ -3,7 +3,7 @@ import client from "../api/client.js";
 import { useAuthStore } from "../store/authStore.js";
 import { useAppStore } from "../store/appStore.js";
 import { calculateDirectPrice } from "../utils/pricing.js";
-import { queueOfflinePurchase } from "../offline/syncQueue.js";
+import { queueOfflinePurchase, newClientRef, isNetworkError } from "../offline/syncQueue.js";
 import { 
   ShoppingBag, CheckCircle, AlertCircle, Clock, 
   X, Check, Printer, FileText, ChevronDown, User, UserPlus
@@ -12,6 +12,8 @@ import OfficialReceiptModal from "../components/shared/OfficialReceiptModal.jsx"
 
 export default function Cola() {
   const { role } = useAuthStore();
+  const isSecretary = role === "produce_secretary";
+  const canReview = isSecretary || role === "produce_manager" || role === "system_admin";
   const { sellers, prices, fetchSellers, fetchSettings } = useAppStore();
 
   // Purchase form
@@ -41,7 +43,7 @@ export default function Cola() {
   useEffect(() => {
     fetchSellers();
     fetchSettings();
-    if (role === "produce_manager" || role === "system_admin") {
+    if (canReview) {
       loadPendingPurchases();
     }
   }, [role]);
@@ -55,7 +57,9 @@ export default function Cola() {
   const loadPendingPurchases = async () => {
     setLoadingPending(true);
     try {
-      const { data } = await client.get("/cola/?status=pending");
+      // Secretaries review their own station's purchases until they sync them to the Manager
+      const query = isSecretary ? "?status=pending&unsynced_only=true" : "?status=pending";
+      const { data } = await client.get(`/cola/${query}`);
       setPendingList(data);
     } catch (err) {
       console.error("Could not load pending cola transactions", err);
@@ -127,6 +131,10 @@ export default function Cola() {
       price_per_kg: price,
     };
 
+    // Device-generated reference: if the connection drops mid-request and the purchase is
+    // re-sent from the offline queue, the server records it only once.
+    payload.client_ref = newClientRef();
+
     setSubmitting(true);
     try {
       if (!navigator.onLine) {
@@ -139,9 +147,11 @@ export default function Cola() {
         await client.post("/cola/", payload);
         setFormMessage({
           type: "success",
-          text: "Purchase recorded successfully as PENDING for Manager review!",
+          text: isSecretary
+            ? "Purchase recorded as PENDING. Approve and issue the receipt below, then sync at the end of the day."
+            : "Purchase recorded successfully as PENDING for review!",
         });
-        if (role === "produce_manager" || role === "system_admin") {
+        if (canReview) {
           loadPendingPurchases();
         }
         if (sellerMode === "random") {
@@ -156,10 +166,20 @@ export default function Cola() {
         setRandomContact("");
       }
     } catch (err) {
-      setFormMessage({
-        type: "error",
-        text: err.response?.data?.detail || "Failed to record purchase.",
-      });
+      if (isNetworkError(err)) {
+        // Weak signal: the phone thought it was online but the server never answered
+        await queueOfflinePurchase("cola", payload);
+        setFormMessage({
+          type: "success",
+          text: "No connection: purchase saved on this phone. It will sync automatically when back online.",
+        });
+        setWeightKg("");
+      } else {
+        setFormMessage({
+          type: "error",
+          text: err.response?.data?.detail || "Failed to record purchase.",
+        });
+      }
     } finally {
       setSubmitting(false);
     }
@@ -421,9 +441,9 @@ export default function Cola() {
         </div>
 
       {/* =========================================================================
-          MANAGER REVIEW QUEUE (Co-located on-the-spot approvals)
+          REVIEW QUEUE (Manager, or Secretary before the end-of-day sync)
           ========================================================================= */}
-      {(role === "produce_manager" || role === "system_admin") && (
+      {(canReview) && (
         <div className="lg:col-span-6">
           <div className="border-2 border-[#168821] rounded-2xl overflow-hidden bg-white shadow-xs">
             <div className="bg-[#d4a000] py-2 px-4 flex items-center justify-between">

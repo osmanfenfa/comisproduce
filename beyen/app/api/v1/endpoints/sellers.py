@@ -8,7 +8,9 @@ History / full profile: Manager / Admin.
 Balance-only view: all roles (exposed on the seller lookup endpoint).
 """
 import uuid
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Literal
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.core.permissions import require_role
@@ -16,7 +18,11 @@ from app.models.user import UserRole
 from app.models.seller import Seller
 from app.models.loan import Loan
 from app.schemas.seller import SellerCreate, SellerEdit, SellerOut, SellerHistory, SellerBalanceOut
-from app.schemas.seller import TransactionSummary, LoanSummary
+from app.schemas.seller import TransactionSummary, LoanSummary, SellerImportResult, SellerImportError
+from app.core.locations import DISTRICTS, normalize_district
+from app.services.seller_import import (
+    parse_seller_file, duplicate_key, build_template_xlsx, build_template_csv, ImportFileError,
+)
 from app.services.pricing import calculate_loan_balance
 from app.services.audit import log_action
 
@@ -53,6 +59,7 @@ def register_seller(
             status_code=403,
             detail="System Admin does not register sellers. Only Produce Managers and Secretaries can register sellers."
         )
+    payload = _normalize_location(payload)
     tenant_produce_id = current.get("produce_id") or current["id"]
     seller_id = _generate_seller_id(db)
     seller = Seller(
@@ -67,6 +74,116 @@ def register_seller(
     log_action(db, current["id"], current["role"], "register_seller", "Seller", seller.id,
                new_value={"name": payload.name, "seller_id": seller_id})
     return seller
+
+
+MAX_UPLOAD_BYTES = 5 * 1024 * 1024
+
+
+def _normalize_location(payload):
+    """Trim location fields and store districts under their canonical name."""
+    data = payload.model_dump(exclude_unset=True)
+    for fld in ("section", "chiefdom"):
+        if isinstance(data.get(fld), str):
+            data[fld] = data[fld].strip() or None
+    if data.get("district"):
+        district = normalize_district(data["district"])
+        if not district:
+            raise HTTPException(status_code=400, detail=f"Unknown district '{data['district']}'.")
+        data["district"] = district
+    return payload.model_copy(update=data)
+
+
+@router.get("/districts", response_model=list[str])
+def list_districts(current=Depends(ANY_STAFF)):
+    """Districts offered in the registration form and the import template."""
+    return DISTRICTS
+
+
+@router.get("/bulk-template")
+def download_import_template(
+    format: Literal["xlsx", "csv"] = Query("xlsx"),
+    current=Depends(ANY_STAFF),
+):
+    if format == "csv":
+        return Response(
+            content=build_template_csv(), media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=COMIS_Seller_Import_Template.csv"},
+        )
+    return Response(
+        content=build_template_xlsx(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=COMIS_Seller_Import_Template.xlsx"},
+    )
+
+
+@router.post("/bulk-upload", response_model=SellerImportResult)
+async def bulk_upload_sellers(
+    file: UploadFile = File(...),
+    dry_run: bool = Query(True, description="Validate and preview only; nothing is saved"),
+    db: Session = Depends(get_db),
+    current=Depends(ANY_STAFF),
+):
+    """
+    Register many sellers from a CSV or Excel file.
+    Call with dry_run=true first to preview, then dry_run=false to import.
+    Invalid rows and sellers that already exist are skipped; the rest are saved together.
+    """
+    if current["role"] == UserRole.system_admin.value:
+        raise HTTPException(status_code=403, detail="System Admin does not register sellers.")
+
+    content = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="File is larger than 5 MB.")
+    try:
+        parsed = parse_seller_file(file.filename or "", content)
+    except ImportFileError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    tenant_produce_id = current.get("produce_id") or current["id"]
+    existing = db.query(Seller.name, Seller.contact, Seller.chiefdom, Seller.district).filter(
+        Seller.produce_id == tenant_produce_id
+    ).all()
+    seen = {duplicate_key(*row) for row in existing}
+
+    errors, to_create, duplicates = [], [], 0
+    for p in parsed:
+        if p.errors:
+            errors.append(SellerImportError(row=p.row_number, name=p.name, reason="; ".join(p.errors)))
+            continue
+        key = duplicate_key(p.seller.name, p.seller.contact, p.seller.chiefdom, p.seller.district)
+        if key in seen:
+            duplicates += 1
+            continue
+        seen.add(key)
+        to_create.append(p.seller)
+
+    created = 0
+    if not dry_run and to_create:
+        next_number = db.query(Seller).count() + 1
+        for item in to_create:
+            db.add(Seller(
+                **item.model_dump(),
+                seller_id=f"SL-{next_number:06d}",
+                produce_id=tenant_produce_id,
+                created_by=current["id"],
+            ))
+            next_number += 1
+        log_action(db, current["id"], current["role"], "bulk_import_sellers", "Seller", None,
+                   new_value={"file": file.filename, "created": len(to_create),
+                              "skipped_duplicates": duplicates, "errors": len(errors)},
+                   commit=False)
+        db.commit()
+        created = len(to_create)
+
+    return SellerImportResult(
+        dry_run=dry_run,
+        total_rows=len(parsed),
+        valid_rows=len(to_create),
+        created=created,
+        skipped_duplicates=duplicates,
+        errors=errors[:500],
+        preview=to_create[:20],
+    )
 
 
 @router.get("/", response_model=list[SellerOut])
@@ -119,8 +236,9 @@ def edit_seller(
     old_values = {
         "name": seller.name, "gender": seller.gender,
         "address": seller.address, "contact": seller.contact,
+        "section": seller.section, "chiefdom": seller.chiefdom, "district": seller.district,
     }
-    update_data = payload.model_dump(exclude_unset=True)
+    update_data = _normalize_location(payload).model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(seller, field, value)
 
@@ -206,15 +324,17 @@ def seller_history(
             loan_taken=loan.loan_taken, balance=bal, status=loan.status,
         ))
 
-    total_produce = sum(t.total_price for t in seller.cocoa_transactions if t.status.value == "finalized")
-    total_produce += sum(t.total_price for t in seller.coffee_transactions if t.status.value == "finalized")
-    total_produce += sum(t.total_price for t in seller.cola_transactions if t.status.value == "finalized")
+    # Unsynced station purchases stay out of the Manager's view until the secretary syncs
+    cocoa = [t for t in seller.cocoa_transactions if t.synced_at is not None]
+    coffee = [t for t in seller.coffee_transactions if t.synced_at is not None]
+    cola = [t for t in seller.cola_transactions if t.synced_at is not None]
+    total_produce = sum(t.total_price for t in cocoa + coffee + cola if t.status.value == "finalized")
 
     return SellerHistory(
         seller=SellerOut.model_validate(seller),
-        cocoa_transactions=[TransactionSummary.model_validate(t) for t in seller.cocoa_transactions],
-        coffee_transactions=[TransactionSummary.model_validate(t) for t in seller.coffee_transactions],
-        cola_transactions=[TransactionSummary.model_validate(t) for t in seller.cola_transactions],
+        cocoa_transactions=[TransactionSummary.model_validate(t) for t in cocoa],
+        coffee_transactions=[TransactionSummary.model_validate(t) for t in coffee],
+        cola_transactions=[TransactionSummary.model_validate(t) for t in cola],
         loans=loan_summaries,
         outstanding_loan_balance=round(total_outstanding, 2),
         total_produce_value=round(total_produce, 2),

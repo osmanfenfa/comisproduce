@@ -1,7 +1,7 @@
 import uuid
 import enum
 from datetime import datetime
-from sqlalchemy import String, Enum, DateTime, ForeignKey, Boolean
+from sqlalchemy import String, Enum, DateTime, ForeignKey, Boolean, Integer
 from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
 
@@ -37,6 +37,7 @@ class User(Base):
 
     reset_password_token: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     reset_password_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    reset_password_attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False, server_default="0")
     google_id: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True)
     produce_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True, index=True)  # Root tenant ID (Manager ID)
 

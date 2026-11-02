@@ -103,7 +103,11 @@ COMIS World Produce Administration
         "subject": subject,
         "plain_text": plain_text,
     }
-    SENT_EMAILS_BUFFER.append(email_record)
+    from app.core.config import settings
+    app_env = settings.APP_ENV
+    if app_env in ("testing", "development"):
+        # Inspection buffer for tests / local dev only — never keep reset codes in a production process
+        SENT_EMAILS_BUFFER.append(email_record)
 
     # Attempt live SMTP if configured
     smtp_host = os.getenv("SMTP_HOST")
@@ -134,5 +138,9 @@ COMIS World Produce Administration
             return True
     else:
         # Development / Offline mode: successfully logged & buffered
-        print(f"[EMAIL SERVICE] [DEV MODE] Password reset email prepared for {to_email} (Code: {reset_code})")
+        if app_env == "development":
+            print(f"[EMAIL SERVICE] [DEV MODE] Password reset email prepared for {to_email} (Code: {reset_code})")
+        else:
+            print(f"[EMAIL SERVICE] SMTP is not configured; reset email for {to_email} was NOT sent.")
+            return False
         return True

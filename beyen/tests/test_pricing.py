@@ -1,6 +1,7 @@
 """
 Integration tests for the full auth + user + purchase workflow.
 """
+from decimal import Decimal
 from app.services.pricing import calculate_moisture_deduction_price, calculate_direct_price
 
 
@@ -19,7 +20,7 @@ def test_cocoa_pricing_proportional_moisture_deduction():
     )
     assert result["moisture_deduction"] == 2.68
     assert result["net_weight_kg"] == 37.32
-    assert result["total_price"] == 1492.80
+    assert result["total_price"] == Decimal("1492.80")
 
 
 def test_user_20kg_12_percent_moisture_deduction():
@@ -38,6 +39,14 @@ def test_user_20kg_12_percent_moisture_deduction():
 
 def test_cola_direct_pricing():
     assert calculate_direct_price(weight_kg=25, price_per_kg=20) == 500.0
+
+
+def test_money_is_exact_decimal():
+    # Float arithmetic gives 0.1 * 3 = 0.30000000000000004 and 1.005 rounds down to 1.0.
+    # Money must be exact and round half-up like a cashier.
+    assert calculate_direct_price(weight_kg=3, price_per_kg=0.1) == Decimal("0.30")
+    assert calculate_direct_price(weight_kg=1, price_per_kg="1.005") == Decimal("1.01")
+    assert isinstance(calculate_direct_price(weight_kg=2, price_per_kg=7), Decimal)
 
 
 def test_moisture_deduction_equal_to_standard():
@@ -95,7 +104,7 @@ def test_loan_balance_calculation():
 
 
 def test_manager_registration_with_mockup_fields_and_login(client):
-    from app.db.seed import ADMIN_CONTACT, ADMIN_PASSWORD
+    from tests.conftest import ADMIN_CONTACT, ADMIN_PASSWORD
 
     # 1. Register with all mockup fields: business_name, address, email, phone_number
     reg_data = {
@@ -138,7 +147,7 @@ def test_manager_registration_with_mockup_fields_and_login(client):
 
 
 def test_edit_profile_and_change_password(client):
-    from app.db.seed import ADMIN_CONTACT, ADMIN_PASSWORD
+    from tests.conftest import ADMIN_CONTACT, ADMIN_PASSWORD
 
     # 1. Admin login
     admin_login = client.post("/api/v1/auth/login", json={
@@ -186,7 +195,7 @@ def test_edit_profile_and_change_password(client):
 
 
 def test_random_seller_purchase_and_detailed_receipt(client):
-    from app.db.seed import ADMIN_CONTACT, ADMIN_PASSWORD
+    from tests.conftest import ADMIN_CONTACT, ADMIN_PASSWORD
 
     # Login as Admin
     admin_login = client.post("/api/v1/auth/login", json={

@@ -6,6 +6,7 @@ Secretary can read the balance-only endpoint on sellers (see sellers.py).
 """
 import uuid
 from datetime import date
+from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.db.session import get_db
@@ -76,6 +77,13 @@ def record_repayment(
         if loan.produce_id and loan.produce_id != tenant_produce_id:
             raise HTTPException(status_code=403, detail="Access denied")
 
+    current_balance = calculate_loan_balance(loan.loan_taken, sum((r.amount_paid for r in loan.repayments), Decimal("0")))
+    if payload.amount_paid > current_balance:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Repayment ({payload.amount_paid}) exceeds the outstanding balance ({current_balance}).",
+        )
+
     repayment = LoanRepayment(
         loan_id=payload.loan_id,
         amount_paid=payload.amount_paid,
@@ -83,19 +91,16 @@ def record_repayment(
         recorded_by=current["id"],
     )
     db.add(repayment)
-    db.flush()
-
-    total_paid = sum(r.amount_paid for r in loan.repayments)
-    balance = calculate_loan_balance(loan.loan_taken, total_paid)
+    balance = current_balance - payload.amount_paid
     if balance <= 0:
         loan.status = "cleared"
     else:
         _update_overdue(loan)
-    db.commit()
 
     log_action(db, current["id"], current["role"], "record_repayment", "Loan", loan.id,
-               new_value={"amount_paid": payload.amount_paid, "new_balance": balance})
-    return {"balance": balance, "status": loan.status}
+               new_value={"amount_paid": payload.amount_paid, "new_balance": balance}, commit=False)
+    db.commit()
+    return {"balance": float(balance), "status": loan.status}
 
 
 @router.get("/", response_model=list[LoanOut])

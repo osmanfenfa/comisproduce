@@ -1,18 +1,21 @@
-version: "3.9"
+# Usage:
+#   cp .env.example .env              # set POSTGRES_PASSWORD
+#   cp beyen/.env.example beyen/.env  # set SECRET_KEY, ADMIN_EMAIL, ADMIN_PASSWORD
+#   docker compose up --build
+# The app is then on http://localhost:${APP_PORT:-8080}. Only nginx is published;
+# the database and API are reachable only on the internal compose network.
 services:
   db:
     image: postgres:16-alpine
     restart: always
     environment:
-      POSTGRES_USER: comis_user
-      POSTGRES_PASSWORD: comis_pass
-      POSTGRES_DB: comis_db
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: ${POSTGRES_USER:-comis_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-comis_db}
     volumes:
       - comis_pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U comis_user -d comis_db"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -25,18 +28,29 @@ services:
         condition: service_healthy
     env_file:
       - ./beyen/.env
-    ports:
-      - "8000:8000"
     environment:
-      DATABASE_URL: postgresql://comis_user:comis_pass@db:5432/comis_db
+      DATABASE_URL: postgresql://${POSTGRES_USER:-comis_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-comis_db}
+      APP_ENV: ${APP_ENV:-production}
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./comisbefoe
+      args:
+        VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:-}
     restart: always
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     ports:
-      - "5173:80"
+      - "${APP_PORT:-8080}:80"
 
 volumes:
   comis_pgdata:

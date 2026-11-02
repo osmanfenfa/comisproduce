@@ -5,91 +5,25 @@ FastAPI application entrypoint.
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import text
 from app.core.config import settings
 from app.api.v1.router import api_router
 from app.db.session import SessionLocal
-from app.db.base import Base
-from app.db.session import engine
+from app.db.seed import seed_database
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Schema changes are applied by Alembic (python -m app.db.migrate), not here.
+    # Startup only makes sure the global settings row / first admin exist.
     if settings.APP_ENV != "testing":
+        db = SessionLocal()
         try:
-            # Create all tables (safe if they already exist)
-            Base.metadata.create_all(bind=engine)
-            try:
-                with engine.connect() as conn:
-                    conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS gender VARCHAR(20)"))
-                    conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_password_token VARCHAR(255)"))
-                    conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_password_expires_at TIMESTAMP"))
-                    conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id VARCHAR(255)"))
-                    conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS produce_id UUID"))
-
-                    conn.execute(text("ALTER TABLE sellers ADD COLUMN IF NOT EXISTS is_random BOOLEAN DEFAULT FALSE"))
-                    conn.execute(text("ALTER TABLE sellers ADD COLUMN IF NOT EXISTS produce_id UUID"))
-
-                    conn.execute(text("ALTER TABLE cocoa_transactions ADD COLUMN IF NOT EXISTS produce_id UUID"))
-                    conn.execute(text("ALTER TABLE cocoa_transactions ADD COLUMN IF NOT EXISTS station_name VARCHAR(120)"))
-                    conn.execute(text("ALTER TABLE coffee_transactions ADD COLUMN IF NOT EXISTS produce_id UUID"))
-                    conn.execute(text("ALTER TABLE coffee_transactions ADD COLUMN IF NOT EXISTS station_name VARCHAR(120)"))
-                    conn.execute(text("ALTER TABLE cola_transactions ADD COLUMN IF NOT EXISTS produce_id UUID"))
-                    conn.execute(text("ALTER TABLE cola_transactions ADD COLUMN IF NOT EXISTS station_name VARCHAR(120)"))
-
-                    conn.execute(text("ALTER TABLE receipts ADD COLUMN IF NOT EXISTS produce_id UUID"))
-                    conn.execute(text("ALTER TABLE receipts ADD COLUMN IF NOT EXISTS station_name VARCHAR(120)"))
-                    conn.execute(text("ALTER TABLE receipts ADD COLUMN IF NOT EXISTS business_name VARCHAR(120)"))
-                    conn.execute(text("ALTER TABLE receipts ADD COLUMN IF NOT EXISTS business_address VARCHAR(255)"))
-                    conn.execute(text("ALTER TABLE receipts ADD COLUMN IF NOT EXISTS business_phone VARCHAR(50)"))
-                    conn.execute(text("ALTER TABLE receipts ADD COLUMN IF NOT EXISTS weight_kg FLOAT"))
-                    conn.execute(text("ALTER TABLE receipts ADD COLUMN IF NOT EXISTS water_percent FLOAT"))
-                    conn.execute(text("ALTER TABLE receipts ADD COLUMN IF NOT EXISTS standard_percent FLOAT"))
-                    conn.execute(text("ALTER TABLE receipts ADD COLUMN IF NOT EXISTS net_weight_kg FLOAT"))
-                    conn.execute(text("ALTER TABLE receipts ADD COLUMN IF NOT EXISTS price_per_kg FLOAT"))
-                    conn.execute(text("ALTER TABLE receipts ADD COLUMN IF NOT EXISTS seller_name_snapshot VARCHAR(120)"))
-                    conn.execute(text("ALTER TABLE receipts ADD COLUMN IF NOT EXISTS seller_contact_snapshot VARCHAR(50)"))
-                    conn.execute(text("ALTER TABLE receipts ADD COLUMN IF NOT EXISTS recorded_by_name VARCHAR(120)"))
-                    conn.execute(text("ALTER TABLE receipts ADD COLUMN IF NOT EXISTS issued_by_name VARCHAR(120)"))
-
-                    conn.execute(text("ALTER TABLE loans ADD COLUMN IF NOT EXISTS produce_id UUID"))
-                    conn.execute(text("ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS produce_id UUID"))
-
-                    # Bags tracking columns
-                    conn.execute(text("ALTER TABLE cocoa_transactions ADD COLUMN IF NOT EXISTS bags INTEGER DEFAULT 1"))
-                    conn.execute(text("ALTER TABLE coffee_transactions ADD COLUMN IF NOT EXISTS bags INTEGER DEFAULT 1"))
-                    conn.execute(text("ALTER TABLE cola_transactions ADD COLUMN IF NOT EXISTS bags INTEGER DEFAULT 1"))
-                    conn.execute(text("ALTER TABLE receipts ADD COLUMN IF NOT EXISTS bags INTEGER DEFAULT 1"))
-
-                    # Allow nullable water_percent and standard_percent for coffee
-                    try:
-                        conn.execute(text("ALTER TABLE coffee_transactions ALTER COLUMN water_percent DROP NOT NULL"))
-                        conn.execute(text("ALTER TABLE coffee_transactions ALTER COLUMN standard_percent DROP NOT NULL"))
-                    except Exception:
-                        pass
-
-                    # Safe backfill of produce_id for existing records
-                    conn.execute(text("UPDATE users SET produce_id = id WHERE role = 'produce_manager' AND produce_id IS NULL"))
-                    conn.execute(text("UPDATE users SET produce_id = created_by WHERE role = 'produce_secretary' AND produce_id IS NULL AND created_by IS NOT NULL"))
-                    try:
-                        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_users_contact ON users(contact)"))
-                        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_users_email ON users(email) WHERE email IS NOT NULL"))
-                    except Exception:
-                        pass
-                    conn.commit()
-            except Exception:
-                pass
-            # Seed default admin + settings row
-            from app.db.seed import seed_database
-            db = SessionLocal()
-            try:
-                seed_database(db)
-            finally:
-                db.close()
+            seed_database(db)
         except Exception as e:
-            print(f"[STARTUP] Note: Database initialization skipped or failed: {e}")
+            print(f"[STARTUP] Seeding skipped: {e}. Run `python -m app.db.migrate` to create/upgrade the schema.")
+        finally:
+            db.close()
     yield
-    # Shutdown: nothing to clean up
 
 
 app = FastAPI(

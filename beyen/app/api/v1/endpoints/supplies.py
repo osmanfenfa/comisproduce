@@ -9,6 +9,7 @@ from app.models.user import UserRole, User
 from app.models.supply import Supply
 from app.schemas.supply import SupplyCreate, SupplyOut
 from app.services.audit import log_action
+from app.services.pricing import calculate_direct_price
 
 router = APIRouter()
 
@@ -48,7 +49,7 @@ def record_produce_supply(
         company_contact=payload.company_contact.strip() if payload.company_contact else None,
         witness_name=payload.witness_name.strip(),
         price_per_kg=payload.price_per_kg,
-        total_value=payload.total_value or (round(payload.total_kg * payload.price_per_kg, 2) if payload.price_per_kg else None),
+        total_value=payload.total_value or (calculate_direct_price(payload.total_kg, payload.price_per_kg) if payload.price_per_kg else None),
         notes=payload.notes.strip() if payload.notes else None,
     )
     db.add(supply)

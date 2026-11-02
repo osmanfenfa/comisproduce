@@ -2,10 +2,10 @@ import { NavLink, useNavigate } from "react-router-dom";
 import { useAuthStore } from "../../store/authStore.js";
 import { Home, RotateCcw, LogOut, UserPlus } from "lucide-react";
 
-// Illustrated SVG Icons matching the mockup circles
-function CocoaPodIcon() {
+// Illustrated commodity icons
+function CocoaPodIcon({ className = "w-6 h-6" }) {
   return (
-    <svg className="w-6 h-6" viewBox="0 0 48 48" fill="none">
+    <svg className={className} viewBox="0 0 48 48" fill="none">
       {/* Cocoa pod silhouette with ridges */}
       <path
         d="M24 6C16 12 12 22 13 32C14 38 18 42 24 44C30 42 34 38 35 32C36 22 32 12 24 6Z"
@@ -22,9 +22,9 @@ function CocoaPodIcon() {
   );
 }
 
-function CoffeeBeanIcon() {
+function CoffeeBeanIcon({ className = "w-6 h-6" }) {
   return (
-    <svg className="w-6 h-6" viewBox="0 0 48 48" fill="none">
+    <svg className={className} viewBox="0 0 48 48" fill="none">
       {/* Roasted Coffee Bean */}
       <ellipse
         cx="24"
@@ -46,9 +46,9 @@ function CoffeeBeanIcon() {
   );
 }
 
-function ColaNutIcon() {
+function ColaNutIcon({ className = "w-6 h-6" }) {
   return (
-    <svg className="w-6 h-6" viewBox="0 0 48 48" fill="none">
+    <svg className={className} viewBox="0 0 48 48" fill="none">
       {/* Three clustered cola nut lobes */}
       <ellipse cx="20" cy="28" rx="9" ry="11" transform="rotate(-35 20 28)" fill="#d46b7a" stroke="#8a2034" strokeWidth="1.8" />
       <ellipse cx="30" cy="27" rx="8" ry="12" transform="rotate(35 30 27)" fill="#b8455a" stroke="#8a2034" strokeWidth="1.8" />
@@ -57,6 +57,40 @@ function ColaNutIcon() {
     </svg>
   );
 }
+
+// Compact, icon-only tab (X/Twitter style): full-height tap target, small icon,
+// active tab shown by a brighter icon and a short marker underneath.
+function TabIcon({ active, children }) {
+  return (
+    <span className="relative flex items-center justify-center h-full w-full">
+      <span className={`transition-opacity ${active ? "opacity-100" : "opacity-70"}`}>{children}</span>
+      <span
+        className={`absolute bottom-1 h-[3px] w-4 rounded-full bg-[#e5a900] transition-opacity ${
+          active ? "opacity-100" : "opacity-0"
+        }`}
+      />
+    </span>
+  );
+}
+
+function Tab({ to, label, end = false, children }) {
+  return (
+    <NavLink
+      to={to}
+      end={end}
+      aria-label={label}
+      title={label}
+      className="flex-1 h-full focus:outline-none active:scale-95 transition-transform"
+    >
+      {({ isActive }) => <TabIcon active={isActive}>{children(isActive)}</TabIcon>}
+    </NavLink>
+  );
+}
+
+const BAR =
+  "md:hidden shrink-0 w-full z-40 bg-[#168821] border-t border-emerald-700/70 select-none pb-[env(safe-area-inset-bottom)]";
+const ROW = "w-full max-w-lg mx-auto h-12 flex items-stretch";
+const LUCIDE = (active) => `w-[22px] h-[22px] text-white ${active ? "stroke-[2.6]" : "stroke-2"}`;
 
 export default function BottomNav() {
   const { role, logout } = useAuthStore();
@@ -69,183 +103,36 @@ export default function BottomNav() {
     navigate("/login");
   };
 
-  // =========================================================================
-  // SYSTEM ADMIN BOTTOM NAV: Home | Audit/Logs | Logout
-  // =========================================================================
+  // SYSTEM ADMIN: Home | Audit/Logs | Logout
   if (role === "system_admin") {
     return (
-      <nav className="md:hidden shrink-0 w-full z-40 bg-[#168821] shadow-xl border-t border-emerald-700 select-none pb-[max(0.25rem,env(safe-area-inset-bottom))]">
-        <div className="w-full max-w-lg mx-auto text-white flex items-center justify-around py-2 px-4">
-          {/* Home */}
-          <NavLink
-            to="/"
-            end
-            className={({ isActive }) =>
-              `flex flex-col items-center justify-center p-1 transition ${
-                isActive ? "opacity-100" : "opacity-80 hover:opacity-100"
-              }`
-            }
-          >
-            {({ isActive }) => (
-              <>
-                <div
-                  className={`w-11 h-10 rounded-xl flex items-center justify-center transition ${
-                    isActive ? "bg-white/20 ring-2 ring-white/60" : ""
-                  }`}
-                >
-                  <Home className="w-6 h-6 text-white" />
-                </div>
-                <span className="text-[11px] font-bold mt-0.5">Home</span>
-              </>
-            )}
-          </NavLink>
-
-          {/* Audit/Logs */}
-          <NavLink
-            to="/audit-logs"
-            className={({ isActive }) =>
-              `flex flex-col items-center justify-center p-1 transition ${
-                isActive ? "opacity-100" : "opacity-80 hover:opacity-100"
-              }`
-            }
-          >
-            {({ isActive }) => (
-              <>
-                <div
-                  className={`w-11 h-10 rounded-xl flex items-center justify-center transition ${
-                    isActive ? "bg-white/20 ring-2 ring-white/60" : ""
-                  }`}
-                >
-                  <RotateCcw className="w-6 h-6 text-white" />
-                </div>
-                <span className="text-[11px] font-bold mt-0.5">Audit/Logs</span>
-              </>
-            )}
-          </NavLink>
-
-          {/* Logout */}
+      <nav className={BAR}>
+        <div className={ROW}>
+          <Tab to="/" end label="Home">{(a) => <Home className={LUCIDE(a)} />}</Tab>
+          <Tab to="/audit-logs" label="Audit logs">{(a) => <RotateCcw className={LUCIDE(a)} />}</Tab>
           <button
             onClick={handleLogout}
-            className="flex flex-col items-center justify-center p-1 opacity-80 hover:opacity-100 transition cursor-pointer"
+            aria-label="Logout"
+            title="Logout"
+            className="flex-1 h-full flex items-center justify-center opacity-70 hover:opacity-100 active:scale-95 transition cursor-pointer"
           >
-            <div className="w-11 h-10 rounded-xl flex items-center justify-center">
-              <LogOut className="w-6 h-6 text-white" />
-            </div>
-            <span className="text-[11px] font-bold mt-0.5">Logout</span>
+            <LogOut className="w-[22px] h-[22px] text-white" />
           </button>
         </div>
       </nav>
     );
   }
 
-  // =========================================================================
-  // PRODUCE MANAGER & SECRETARY BOTTOM NAV: 5 Circular Commodity Buttons
-  // =========================================================================
+  // PRODUCE MANAGER & SECRETARY: Home | Users | Cocoa | Coffee | Cola
   return (
-    <nav className="md:hidden shrink-0 w-full z-40 bg-[#168821] shadow-2xl border-t border-emerald-700 select-none pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-      <div className="w-full max-w-lg mx-auto py-2 px-3 flex items-center justify-around">
-        
-        {/* 1. Home button */}
-        <NavLink
-          to="/"
-          end
-          className="focus:outline-none"
-        >
-          {({ isActive }) => (
-            <div
-              className={`w-12 h-12 rounded-full flex items-center justify-center shadow-sm transition-transform active:scale-95 ${
-                isActive
-                  ? "bg-[#e5a900] border-2 border-white ring-2 ring-[#e5a900]/50"
-                  : "bg-white border border-slate-200 hover:scale-105"
-              }`}
-            >
-              <Home
-                className={`w-6 h-6 ${
-                  isActive ? "text-white" : "text-[#e5a900] stroke-[2.2]"
-                }`}
-              />
-            </div>
-          )}
-        </NavLink>
-
-        {/* 2. User / Staff button */}
-        <NavLink
-          to="/users"
-          className="focus:outline-none"
-        >
-          {({ isActive }) => (
-            <div
-              className={`w-12 h-12 rounded-full flex items-center justify-center shadow-sm transition-transform active:scale-95 ${
-                isActive
-                  ? "bg-[#e5a900] border-2 border-white ring-2 ring-[#e5a900]/50"
-                  : "bg-white border border-slate-200 hover:scale-105"
-              }`}
-            >
-              <UserPlus
-                className={`w-6 h-6 ${
-                  isActive ? "text-white" : "text-[#e5a900] stroke-[2.2]"
-                }`}
-              />
-            </div>
-          )}
-        </NavLink>
-
-        {/* 3. Cocoa intake button */}
-        <NavLink
-          to="/cocoa"
-          className="focus:outline-none"
-        >
-          {({ isActive }) => (
-            <div
-              className={`w-12 h-12 rounded-full flex items-center justify-center shadow-sm transition-transform active:scale-95 ${
-                isActive
-                  ? "bg-[#e5a900] border-2 border-white ring-2 ring-[#e5a900]/50"
-                  : "bg-white border border-slate-200 hover:scale-105"
-              }`}
-            >
-              <CocoaPodIcon />
-            </div>
-          )}
-        </NavLink>
-
-        {/* 4. Coffee intake button */}
-        <NavLink
-          to="/coffee"
-          className="focus:outline-none"
-        >
-          {({ isActive }) => (
-            <div
-              className={`w-12 h-12 rounded-full flex items-center justify-center shadow-sm transition-transform active:scale-95 ${
-                isActive
-                  ? "bg-[#e5a900] border-2 border-white ring-2 ring-[#e5a900]/50"
-                  : "bg-white border border-slate-200 hover:scale-105"
-              }`}
-            >
-              <CoffeeBeanIcon />
-            </div>
-          )}
-        </NavLink>
-
-        {/* 5. Cola nut intake button */}
-        <NavLink
-          to="/cola"
-          className="focus:outline-none"
-        >
-          {({ isActive }) => (
-            <div
-              className={`w-12 h-12 rounded-full flex items-center justify-center shadow-sm transition-transform active:scale-95 ${
-                isActive
-                  ? "bg-[#e5a900] border-2 border-white ring-2 ring-[#e5a900]/50"
-                  : "bg-white border border-slate-200 hover:scale-105"
-              }`}
-            >
-              <ColaNutIcon />
-            </div>
-          )}
-        </NavLink>
-
+    <nav className={BAR}>
+      <div className={ROW}>
+        <Tab to="/" end label="Home">{(a) => <Home className={LUCIDE(a)} />}</Tab>
+        <Tab to="/users" label="Users & sellers">{(a) => <UserPlus className={LUCIDE(a)} />}</Tab>
+        <Tab to="/cocoa" label="Cocoa">{() => <CocoaPodIcon className="w-[22px] h-[22px]" />}</Tab>
+        <Tab to="/coffee" label="Coffee">{() => <CoffeeBeanIcon className="w-[22px] h-[22px]" />}</Tab>
+        <Tab to="/cola" label="Cola">{() => <ColaNutIcon className="w-[22px] h-[22px]" />}</Tab>
       </div>
     </nav>
   );
 }
-

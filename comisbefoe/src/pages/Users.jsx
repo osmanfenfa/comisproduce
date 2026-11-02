@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import client from "../api/client.js";
 import { useAuthStore } from "../store/authStore.js";
 import { useAppStore } from "../store/appStore.js";
+import { DISTRICTS } from "../utils/locations.js";
 import { 
   Users as UsersIcon, UserPlus, CheckCircle, ShieldAlert, 
   X, Check, Lock, Building, Phone, UserCheck, Mail, MapPin, 
@@ -34,6 +35,9 @@ export default function Users() {
   const [sellerPhone, setSellerPhone] = useState("");
   const [sellerAddress, setSellerAddress] = useState("");
   const [sellerGender, setSellerGender] = useState("male");
+  const [sellerSection, setSellerSection] = useState("");
+  const [sellerChiefdom, setSellerChiefdom] = useState("");
+  const [sellerDistrict, setSellerDistrict] = useState("");
   const [sellerNIN, setSellerNIN] = useState("");
   const [submittingSeller, setSubmittingSeller] = useState(false);
 
@@ -139,6 +143,9 @@ export default function Users() {
         gender: sellerGender,
         address: sellerAddress,
         contact: sellerPhone,
+        section: sellerSection.trim() || null,
+        chiefdom: sellerChiefdom.trim(),
+        district: sellerDistrict,
       });
 
       setFormMsg({
@@ -148,6 +155,9 @@ export default function Users() {
       setSellerName("");
       setSellerPhone("");
       setSellerAddress("");
+      setSellerSection("");
+      setSellerChiefdom("");
+      setSellerDistrict("");
       setSellerNIN("");
       fetchSellers();
 
@@ -597,6 +607,56 @@ export default function Users() {
                 placeholder="Community / Town / Address"
                 value={sellerAddress}
                 onChange={(e) => setSellerAddress(e.target.value)}
+                className="w-full text-xs sm:text-sm text-slate-900 placeholder-slate-400 bg-transparent focus:outline-none pr-3 font-medium"
+              />
+            </div>
+
+            {/* Location for traceability: District > Chiefdom > Section */}
+            <div className="flex items-center border border-slate-700 rounded-full overflow-hidden bg-white shadow-2xs h-11 px-1.5">
+              <div className="w-8 h-8 rounded-full bg-[#168821] flex items-center justify-center text-white shrink-0 ml-1">
+                <MapPin className="w-4 h-4" />
+              </div>
+              <div className="h-6 w-px bg-slate-300 mx-2.5" />
+              <select
+                required
+                value={sellerDistrict}
+                onChange={(e) => setSellerDistrict(e.target.value)}
+                className={`w-full text-xs sm:text-sm bg-transparent focus:outline-none pr-3 font-medium ${
+                  sellerDistrict ? "text-slate-900" : "text-slate-400"
+                }`}
+              >
+                <option value="" disabled>District</option>
+                {DISTRICTS.map((d) => (
+                  <option key={d} value={d} className="text-slate-900">{d}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-center border border-slate-700 rounded-full overflow-hidden bg-white shadow-2xs h-11 px-1.5">
+              <div className="w-8 h-8 rounded-full bg-[#168821] flex items-center justify-center text-white shrink-0 ml-1">
+                <MapPin className="w-4 h-4" />
+              </div>
+              <div className="h-6 w-px bg-slate-300 mx-2.5" />
+              <input
+                type="text"
+                required
+                placeholder="Chiefdom"
+                value={sellerChiefdom}
+                onChange={(e) => setSellerChiefdom(e.target.value)}
+                className="w-full text-xs sm:text-sm text-slate-900 placeholder-slate-400 bg-transparent focus:outline-none pr-3 font-medium"
+              />
+            </div>
+
+            <div className="flex items-center border border-slate-700 rounded-full overflow-hidden bg-white shadow-2xs h-11 px-1.5">
+              <div className="w-8 h-8 rounded-full bg-[#168821] flex items-center justify-center text-white shrink-0 ml-1">
+                <MapPin className="w-4 h-4" />
+              </div>
+              <div className="h-6 w-px bg-slate-300 mx-2.5" />
+              <input
+                type="text"
+                placeholder="Section (Optional)"
+                value={sellerSection}
+                onChange={(e) => setSellerSection(e.target.value)}
                 className="w-full text-xs sm:text-sm text-slate-900 placeholder-slate-400 bg-transparent focus:outline-none pr-3 font-medium"
               />
             </div>

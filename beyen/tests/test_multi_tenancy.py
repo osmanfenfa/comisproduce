@@ -8,7 +8,7 @@ Validates that:
 5. System Admin can monitor tenants.
 """
 import pytest
-from app.db.seed import ADMIN_CONTACT, ADMIN_PASSWORD
+from tests.conftest import ADMIN_CONTACT, ADMIN_PASSWORD
 
 
 def test_saas_multi_tenant_isolation(client):
@@ -225,6 +225,10 @@ def test_saas_multi_tenant_isolation(client):
     assert resp.status_code == 201
     txn_b_id = resp.json()["id"]
     assert resp.json()["station_name"] == "Bo Buying Station"
+
+    # End-of-day sync at both stations so the managers can see the purchases
+    assert client.post("/api/v1/sync/", headers=sec_a1_headers).status_code == 200
+    assert client.post("/api/v1/sync/", headers=sec_b1_headers).status_code == 200
 
     # Manager A lists cocoa -> MUST see txn_a, MUST NOT see txn_b
     resp = client.get("/api/v1/cocoa/", headers=mgr_a_headers)

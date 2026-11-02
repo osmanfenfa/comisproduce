@@ -20,6 +20,7 @@
   "background_color": "#1b4332",
   "theme_color": "#1b4332",
   "display": "standalone",
-  "orientation": "portrait"
+  "orientation": "portrait",
+  "id": "/",
+  "scope": "/"
 }
-
