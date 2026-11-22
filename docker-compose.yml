@@ -33,6 +33,9 @@ services:
       APP_ENV: ${APP_ENV:-production}
     expose:
       - "8000"
+    volumes:
+      - comis_media:/app/media   # marketplace photos/videos survive container rebuilds
+      - comis_private:/app/private_media   # ID documents: never served publicly
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
       interval: 10s
@@ -54,3 +57,5 @@ services:
 
 volumes:
   comis_pgdata:
+  comis_media:
+  comis_private:

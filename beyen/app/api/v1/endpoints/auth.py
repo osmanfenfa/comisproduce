@@ -22,7 +22,11 @@ from app.core.security import verify_password, hash_password, create_access_toke
 from app.core.rate_limit import limiter, client_ip, too_many_requests
 from app.schemas.user import UserLogin, Token, ForgotPasswordRequest, ResetPasswordRequest, GoogleAuthRequest
 from app.services.email import send_password_reset_email
+from app.services.sms import send_sms, SmsUnavailable
+from sqlalchemy import func
 from app.services import google_auth
+from app.services.avatars import avatar_url
+from app.services.phone import looks_like_phone, normalize_phone, InvalidPhone
 
 router = APIRouter()
 
@@ -47,6 +51,20 @@ MIN_PASSWORD_LENGTH = 8
 
 def _sha256(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _find_account(db: Session, identifier: str) -> User | None:
+    """Account by email, or by phone number in any common format (076..., +232...)."""
+    candidates = {identifier}
+    if looks_like_phone(identifier):
+        try:
+            candidates.add(normalize_phone(identifier))
+        except InvalidPhone:
+            pass
+    return db.query(User).filter(
+        func.lower(User.email).in_([c.lower() for c in candidates]) | User.contact.in_(candidates)
+        | func.lower(User.contact).in_([c.lower() for c in candidates])
+    ).first()
 
 
 def _clear_reset(user: User) -> None:
@@ -79,6 +97,7 @@ def _issue_token(user: User, db: Session) -> Token:
         business_name=user.business_name,
         produce_name=user.business_name or user.station_name,
         produce_id=user.produce_id,
+        avatar_url=avatar_url(user),
     )
 
 
@@ -88,6 +107,15 @@ def login(payload: UserLogin, request: Request, db: Session = Depends(get_db)):
     if not identifier:
         raise HTTPException(status_code=400, detail="Email or contact is required.")
 
+    # Farmers and traders log in with their phone number in any common format
+    candidates = {identifier}
+    if looks_like_phone(identifier):
+        try:
+            identifier = normalize_phone(identifier)
+            candidates.add(identifier)
+        except InvalidPhone:
+            pass
+
     ip_key = f"login-fail:ip:{client_ip(request)}"
     account_key = f"login-fail:acct:{identifier.lower()}"
     if (limiter.is_limited(ip_key, LOGIN_MAX_FAILURES_PER_IP, LOGIN_WINDOW)
@@ -95,7 +123,7 @@ def login(payload: UserLogin, request: Request, db: Session = Depends(get_db)):
         raise too_many_requests(LOGIN_WINDOW)
 
     user = db.query(User).filter(
-        (User.contact == identifier) | (User.email == identifier)
+        User.contact.in_(candidates) | User.email.in_(candidates)
     ).first()
     if not user or not verify_password(payload.password, user.password_hash):
         limiter.hit(ip_key)
@@ -123,9 +151,7 @@ def forgot_password(payload: ForgotPasswordRequest, request: Request, db: Sessio
             or limiter.check_and_hit(f"forgot:acct:{email_or_contact.lower()}", FORGOT_MAX_PER_ACCOUNT, FORGOT_WINDOW)):
         raise too_many_requests(FORGOT_WINDOW)
 
-    user = db.query(User).filter(
-        (User.email.ilike(email_or_contact)) | (User.contact.ilike(email_or_contact))
-    ).first()
+    user = _find_account(db, email_or_contact)
 
     if user:
         code = f"{secrets.randbelow(900000) + 100000}"
@@ -136,16 +162,23 @@ def forgot_password(payload: ForgotPasswordRequest, request: Request, db: Sessio
         user.reset_password_attempts = 0
         db.commit()
 
-        recipient_email = user.email or (user.contact if "@" in user.contact else None) or email_or_contact
-        send_password_reset_email(
-            to_email=recipient_email,
-            user_name=user.name,
-            reset_token=raw_token,
-            reset_code=code,
-        )
+        recipient_email = user.email or (user.contact if "@" in user.contact else None)
+        if recipient_email:
+            send_password_reset_email(
+                to_email=recipient_email,
+                user_name=user.name,
+                reset_token=raw_token,
+                reset_code=code,
+            )
+        else:
+            # Phone-only accounts (farmers, traders): the 6-digit code by SMS
+            try:
+                send_sms(user.contact, f"Your COMIS password reset code is {code}. It expires in 30 minutes.")
+            except SmsUnavailable as e:
+                print(f"[SMS] Reset code for {user.contact} NOT sent: {e}")
 
     return {
-        "message": "If an account exists with this email, password reset instructions have been sent."
+        "message": "If an account exists, a reset code has been sent to its email or phone."
     }
 
 
@@ -177,7 +210,7 @@ def reset_password(payload: ResetPasswordRequest, request: Request, db: Session 
         if not email:
             limiter.hit(ip_key)
             raise HTTPException(status_code=400, detail="Enter the email address the code was sent to.")
-        user = db.query(User).filter((User.email.ilike(email)) | (User.contact.ilike(email))).first()
+        user = _find_account(db, email)
         if user and user.reset_password_token and user.reset_password_expires_at and user.reset_password_expires_at > now:
             code_hash = user.reset_password_token.split(":")[0]
             if hmac.compare_digest(code_hash, req_hash):

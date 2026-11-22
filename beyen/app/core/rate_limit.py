@@ -1,12 +1,13 @@
 """
-In-memory sliding-window rate limiter for the auth endpoints.
+Sliding-window rate limiter for logins, password resets, posting, etc.
 
-State lives in the process, so limits are per worker. That is enough for a
-single-instance deployment; move the counters to Redis before running several
-backend replicas.
+With REDIS_URL set, counters live in Redis: shared by every backend worker and
+surviving restarts. Without it (or if Redis is unreachable) they fall back to
+this process's memory, so a Redis outage never blocks logins.
 """
 import time
 import threading
+import uuid
 from collections import defaultdict, deque
 from fastapi import HTTPException, Request
 
@@ -49,7 +50,75 @@ class RateLimiter:
                 self._hits.pop(key, None)
 
 
-limiter = RateLimiter()
+# Longest window any caller uses; keys expire after this so Redis never fills up
+MAX_WINDOW_SECONDS = 60 * 60
+
+
+class RedisRateLimiter:
+    """Same interface as RateLimiter, backed by one sorted set per key (score = timestamp)."""
+    PREFIX = "comis:rl:"
+
+    def __init__(self, url: str):
+        import redis
+        self._r = redis.Redis.from_url(url, socket_timeout=3, socket_connect_timeout=3)
+        self._fallback = RateLimiter()
+
+    def _count(self, key: str, window: float, now: float) -> int:
+        k = self.PREFIX + key
+        pipe = self._r.pipeline()
+        pipe.zremrangebyscore(k, 0, now - window)
+        pipe.zcard(k)
+        return pipe.execute()[1]
+
+    def _add(self, key: str, now: float) -> None:
+        k = self.PREFIX + key
+        pipe = self._r.pipeline()
+        pipe.zadd(k, {f"{now}:{uuid.uuid4().hex[:8]}": now})
+        pipe.expire(k, MAX_WINDOW_SECONDS)
+        pipe.execute()
+
+    def is_limited(self, key: str, limit: int, window: float) -> bool:
+        try:
+            return self._count(key, window, time.time()) >= limit
+        except Exception:
+            return self._fallback.is_limited(key, limit, window)
+
+    def hit(self, key: str) -> None:
+        try:
+            self._add(key, time.time())
+        except Exception:
+            self._fallback.hit(key)
+
+    def check_and_hit(self, key: str, limit: int, window: float) -> bool:
+        try:
+            now = time.time()
+            if self._count(key, window, now) >= limit:
+                return True
+            self._add(key, now)
+            return False
+        except Exception:
+            return self._fallback.check_and_hit(key, limit, window)
+
+    def reset(self, key: str | None = None) -> None:
+        self._fallback.reset(key)
+        try:
+            if key is None:
+                for k in self._r.scan_iter(self.PREFIX + "*"):
+                    self._r.delete(k)
+            else:
+                self._r.delete(self.PREFIX + key)
+        except Exception:
+            pass
+
+
+def _build_limiter():
+    from app.core.config import settings
+    if settings.REDIS_URL:
+        return RedisRateLimiter(settings.REDIS_URL)
+    return RateLimiter()
+
+
+limiter = _build_limiter()
 
 
 def client_ip(request: Request) -> str:

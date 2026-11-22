@@ -3,7 +3,6 @@ import { useAuthStore } from "./store/authStore.js";
 
 // Components & Layout
 import ProtectedRoute from "./components/shared/ProtectedRoute.jsx";
-import OfflineBanner from "./components/shared/OfflineBanner.jsx";
 import TopHeader from "./components/nav/TopHeader.jsx";
 import BottomNav from "./components/nav/BottomNav.jsx";
 
@@ -26,14 +25,39 @@ import TermsOfService from "./pages/TermsOfService.jsx";
 import UserAgreement from "./pages/UserAgreement.jsx";
 import PrivacyPolicy from "./pages/PrivacyPolicy.jsx";
 import About from "./pages/About.jsx";
+import MarketHome from "./pages/market/MarketHome.jsx";
+import MarketListing from "./pages/market/MarketListing.jsx";
+import MarketPost from "./pages/market/MarketPost.jsx";
+import MarketActivity from "./pages/market/MarketActivity.jsx";
+import MarketMe from "./pages/market/MarketMe.jsx";
+import MarketModeration from "./pages/market/MarketModeration.jsx";
+import { isMarketRole } from "./utils/market.js";
+import { useNotificationPolling } from "./hooks/useNotificationPolling.js";
+
+const STATION_ROLES = ["produce_manager", "produce_secretary", "system_admin"];
+const MARKET_VIEW = ["farmer", "trader", "produce_manager", "produce_secretary", "system_admin"];
+const MARKET_TRADE = ["farmer", "trader", "produce_manager", "produce_secretary"];
+
+/** Farmers and traders have no station dashboard: their home is the market. */
+function HomeGate() {
+  const role = useAuthStore((s) => s.role);
+  return isMarketRole(role) ? <Navigate to="/market" replace /> : <Home />;
+}
+
+/** Station pages: market accounts are sent to the market instead of a blank/403 screen. */
+function StationOnly({ children, roles = STATION_ROLES }) {
+  const role = useAuthStore((s) => s.role);
+  if (isMarketRole(role)) return <Navigate to="/market" replace />;
+  return <ProtectedRoute roles={roles}>{children}</ProtectedRoute>;
+}
 
 function AppLayout({ children }) {
   const { role } = useAuthStore();
+  useNotificationPolling();
 
   if (!role) {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col font-sans selection:bg-emerald-100 selection:text-emerald-900">
-        <OfflineBanner />
         <main className="flex-1 w-full">
           {children}
         </main>
@@ -43,7 +67,6 @@ function AppLayout({ children }) {
 
   return (
     <div className="h-[100dvh] max-h-[100dvh] bg-slate-50/80 flex flex-col font-sans selection:bg-emerald-100 selection:text-emerald-900 overflow-hidden">
-      <OfflineBanner />
       <TopHeader />
 
       <main className="flex-1 w-full max-w-6xl mx-auto px-3 sm:px-6 lg:px-8 py-3.5 sm:py-6 overflow-y-auto overscroll-contain">
@@ -78,7 +101,7 @@ export default function App() {
             path="/"
             element={
               <ProtectedRoute>
-                <Home />
+                <HomeGate />
               </ProtectedRoute>
             }
           />
@@ -87,9 +110,9 @@ export default function App() {
           <Route
             path="/seller"
             element={
-              <ProtectedRoute>
+              <StationOnly>
                 <Seller />
-              </ProtectedRoute>
+              </StationOnly>
             }
           />
 
@@ -97,25 +120,25 @@ export default function App() {
           <Route
             path="/cocoa"
             element={
-              <ProtectedRoute>
+              <StationOnly>
                 <Cocoa />
-              </ProtectedRoute>
+              </StationOnly>
             }
           />
           <Route
             path="/coffee"
             element={
-              <ProtectedRoute>
+              <StationOnly>
                 <Coffee />
-              </ProtectedRoute>
+              </StationOnly>
             }
           />
           <Route
             path="/cola"
             element={
-              <ProtectedRoute>
+              <StationOnly>
                 <Cola />
-              </ProtectedRoute>
+              </StationOnly>
             }
           />
 
@@ -123,9 +146,9 @@ export default function App() {
           <Route
             path="/transactions"
             element={
-              <ProtectedRoute>
+              <StationOnly>
                 <Transactions />
-              </ProtectedRoute>
+              </StationOnly>
             }
           />
 
@@ -198,6 +221,15 @@ export default function App() {
               </ProtectedRoute>
             }
           />
+
+          {/* COMIS Market (farmers, traders, stations; admin moderates) */}
+          <Route path="/market" element={<ProtectedRoute roles={MARKET_VIEW}><MarketHome /></ProtectedRoute>} />
+          <Route path="/market/listing/:id" element={<ProtectedRoute roles={MARKET_VIEW}><MarketListing /></ProtectedRoute>} />
+          <Route path="/market/new" element={<ProtectedRoute roles={MARKET_TRADE}><MarketPost /></ProtectedRoute>} />
+          <Route path="/market/edit/:id" element={<ProtectedRoute roles={MARKET_TRADE}><MarketPost /></ProtectedRoute>} />
+          <Route path="/market/activity" element={<ProtectedRoute roles={MARKET_TRADE}><MarketActivity /></ProtectedRoute>} />
+          <Route path="/market/me" element={<ProtectedRoute roles={["farmer", "trader"]}><MarketMe /></ProtectedRoute>} />
+          <Route path="/market/moderation" element={<ProtectedRoute roles={["system_admin"]}><MarketModeration /></ProtectedRoute>} />
 
           {/* Catch-all */}
           <Route path="*" element={<Navigate to="/" replace />} />

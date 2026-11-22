@@ -3,14 +3,20 @@ import { useNavigate, useLocation, Link } from "react-router-dom";
 import { useAuthStore } from "../../store/authStore.js";
 import { 
   LogOut, Settings, Users, FileBarChart, 
-  Receipt, ShieldCheck, User as UserIcon, KeyRound
+  Receipt, ShieldCheck, User as UserIcon, KeyRound, Store, Truck, Wallet, Camera
 } from "lucide-react";
 import ChangePasswordModal from "../shared/ChangePasswordModal.jsx";
+import CountBadge from "../shared/CountBadge.jsx";
+import UserAvatar from "../shared/UserAvatar.jsx";
+import ProfilePhotoModal from "../shared/ProfilePhotoModal.jsx";
+import { useNotificationStore } from "../../store/notificationStore.js";
 
 export default function TopHeader() {
-  const { role, name, stationName, produceName, logout } = useAuthStore();
+  const { role, name, stationName, produceName, logout, avatarUrl } = useAuthStore();
+  const [photoOpen, setPhotoOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
+  const notifications = useNotificationStore((s) => s.total);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -20,6 +26,50 @@ export default function TopHeader() {
     logout();
     navigate("/login");
   };
+
+  // Farmers & traders: simple market header (no station branding or station shortcuts)
+  if (role === "farmer" || role === "trader") {
+    const marketLinks = [["/market", "Market"], ["/market/new", "Post"], ["/market/activity", "My activity"], ["/market/me", "Me"]];
+    return (
+      <header className="bg-white text-slate-800 sticky top-0 z-40 border-b border-slate-100 shadow-2xs">
+        <div className="w-full max-w-6xl mx-auto px-3 sm:px-6 lg:px-8 py-2.5 flex items-center justify-between gap-4">
+          <div className="min-w-0">
+            <h1 className="text-[#168821] font-black text-lg leading-none tracking-tight">COMIS Market</h1>
+            <p className="text-[#d4a000] font-bold text-xs mt-0.5 truncate">
+              {name || "Member"} · {role === "farmer" ? "Farmer" : "Trader"}
+            </p>
+          </div>
+          <nav className="hidden md:flex items-center gap-1.5">
+            {marketLinks.map(([to, label]) => (
+              <Link key={to} to={to}
+                className={`px-3 py-1.5 rounded-full text-xs font-bold transition inline-flex items-center gap-1 ${
+                  location.pathname === to ? "bg-[#168821] text-white shadow-xs" : "text-slate-600 hover:bg-slate-100"
+                }`}>
+                {label}
+                {to === "/market/activity" && <CountBadge count={notifications} />}
+              </Link>
+            ))}
+          </nav>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button type="button" onClick={() => setPhotoOpen(true)} aria-label="Profile photo" title="Profile photo"
+              className="rounded-full cursor-pointer ring-2 ring-transparent hover:ring-emerald-200">
+              <UserAvatar src={avatarUrl} name={name} role={role} size="w-8 h-8 text-sm" />
+            </button>
+            <button type="button" onClick={() => setChangePasswordOpen(true)} aria-label="Change password" title="Change password"
+              className="p-2 rounded-full text-amber-700 hover:bg-amber-50 cursor-pointer">
+              <KeyRound className="w-4.5 h-4.5" />
+            </button>
+            <button type="button" onClick={handleLogout} aria-label="Logout" title="Logout"
+              className="p-2 rounded-full text-[#d32f2f] hover:bg-red-50 cursor-pointer">
+              <LogOut className="w-4.5 h-4.5" />
+            </button>
+          </div>
+        </div>
+        <ChangePasswordModal isOpen={changePasswordOpen} onClose={() => setChangePasswordOpen(false)} />
+        <ProfilePhotoModal isOpen={photoOpen} onClose={() => setPhotoOpen(false)} />
+      </header>
+    );
+  }
 
   const isSystemAdmin = role === "system_admin";
   const isManager = role === "produce_manager";
@@ -65,7 +115,7 @@ export default function TopHeader() {
                     <button
                       type="button"
                       onClick={() => window.dispatchEvent(new CustomEvent("open-supply-modal"))}
-                      className="inline-block px-2.5 py-0.5 rounded-md bg-[#168821] text-white font-bold text-[11px] hover:bg-[#126e1a] shadow-xs active:scale-95 transition cursor-pointer"
+                      className="hidden md:inline-block px-2.5 py-0.5 rounded-md bg-[#168821] text-white font-bold text-[11px] hover:bg-[#126e1a] shadow-xs active:scale-95 transition cursor-pointer"
                     >
                       SUPPLY
                     </button>
@@ -73,7 +123,7 @@ export default function TopHeader() {
                   {isManager && location.pathname === "/" && (
                     <Link
                       to="/loan"
-                      className="inline-block px-2.5 py-0.5 rounded-md border border-[#d4a000] text-[#d4a000] font-bold text-[11px] hover:bg-amber-50 active:scale-95 transition"
+                      className="hidden md:inline-block px-2.5 py-0.5 rounded-md border border-[#d4a000] text-[#d4a000] font-bold text-[11px] hover:bg-amber-50 active:scale-95 transition"
                     >
                       LOAN
                     </Link>
@@ -210,6 +260,19 @@ export default function TopHeader() {
               >
                 Reports
               </Link>
+              {(isManager || isSecretary) && (
+                <Link
+                  to="/market"
+                  className={`px-3 py-1.5 rounded-full text-xs font-bold transition ${
+                    location.pathname.startsWith("/market")
+                      ? "bg-[#d4a000] text-white shadow-xs"
+                      : "text-[#b38600] hover:bg-amber-50"
+                  }`}
+                >
+                  Market
+                  <CountBadge count={notifications} className="ml-1 inline-block" />
+                </Link>
+              )}
             </>
           )}
         </nav>
@@ -221,9 +284,13 @@ export default function TopHeader() {
             className="p-1.5 text-slate-700 hover:text-slate-900 rounded-full hover:bg-slate-100 transition focus:outline-none cursor-pointer"
             aria-label="User Profile"
           >
-            {/* Outline profile icon with pen indicator matching mockup */}
+            {/* Profile photo (or icon) with the green online dot */}
             <div className="relative">
-              <UserIcon className="w-7 h-7 text-slate-700 stroke-[1.8]" />
+              {avatarUrl ? (
+                <UserAvatar src={avatarUrl} name={name} role={role} size="w-8 h-8 text-sm" />
+              ) : (
+                <UserIcon className="w-7 h-7 text-slate-700 stroke-[1.8]" />
+              )}
               <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-white rounded-full flex items-center justify-center">
                 <div className="w-1.5 h-1.5 bg-[#168821] rounded-full" />
               </div>
@@ -238,8 +305,15 @@ export default function TopHeader() {
                 onClick={() => setProfileOpen(false)}
               />
               <div className="absolute right-0 mt-2 w-64 bg-white rounded-3xl shadow-xl border-2 border-[#168821] p-4 z-50 animate-in fade-in zoom-in-95 duration-100">
-                <div className="flex justify-between items-start">
-                  <div>
+                <div className="flex justify-between items-start gap-2">
+                  <button type="button" onClick={() => { setProfileOpen(false); setPhotoOpen(true); }}
+                    aria-label="Change profile photo" className="relative shrink-0 cursor-pointer">
+                    <UserAvatar src={avatarUrl} name={name} role={role} size="w-12 h-12 text-lg" />
+                    <span className="absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full bg-[#168821] text-white flex items-center justify-center ring-2 ring-white">
+                      <Camera className="w-3 h-3" />
+                    </span>
+                  </button>
+                  <div className="flex-1 min-w-0">
                     {/* User Full Name */}
                     <p className="font-bold text-base text-[#0f5c18] leading-tight">
                       {name || "User"}
@@ -290,6 +364,60 @@ export default function TopHeader() {
                     </>
                   )}
 
+                  {isManager && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setProfileOpen(false);
+                          // The supply form lives on the Home page: go there first if needed
+                          const open = () => window.dispatchEvent(new CustomEvent("open-supply-modal"));
+                          if (location.pathname === "/") open();
+                          else {
+                            navigate("/");
+                            setTimeout(open, 150);
+                          }
+                        }}
+                        className="w-full flex items-center gap-2 px-2 py-1.5 rounded-xl text-xs font-bold text-slate-700 hover:bg-emerald-50 hover:text-[#168821] transition cursor-pointer text-left"
+                      >
+                        <Truck className="w-4 h-4 text-emerald-700" />
+                        <span>Supply</span>
+                      </button>
+
+                      <Link
+                        to="/loan"
+                        onClick={() => setProfileOpen(false)}
+                        className="flex items-center gap-2 px-2 py-1.5 rounded-xl text-xs font-bold text-slate-700 hover:bg-amber-50 hover:text-[#b38600] transition"
+                      >
+                        <Wallet className="w-4 h-4 text-[#d4a000]" />
+                        <span>Loans</span>
+                      </Link>
+                    </>
+                  )}
+
+                  {(isManager || isSecretary || isSystemAdmin) && (
+                    <Link
+                      to={isSystemAdmin ? "/market/moderation" : "/market"}
+                      onClick={() => setProfileOpen(false)}
+                      className="flex items-center gap-2 px-2 py-1.5 rounded-xl text-xs font-bold text-slate-700 hover:bg-amber-50 hover:text-[#b38600] transition"
+                    >
+                      <Store className="w-4 h-4 text-[#d4a000]" />
+                      <span>{isSystemAdmin ? "Market Moderation" : "COMIS Market"}</span>
+                    </Link>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProfileOpen(false);
+                      setPhotoOpen(true);
+                    }}
+                    className="w-full flex items-center gap-2 px-2 py-1.5 rounded-xl text-xs font-bold text-slate-700 hover:bg-emerald-50 hover:text-[#168821] transition cursor-pointer text-left"
+                  >
+                    <Camera className="w-4 h-4 text-emerald-700" />
+                    <span>Profile Photo</span>
+                  </button>
+
                   <button
                     type="button"
                     onClick={() => {
@@ -320,55 +448,9 @@ export default function TopHeader() {
 
       </div>
 
-      {/* Mobile Quick Action Bar */}
-      <div className="md:hidden flex items-center justify-between gap-1.5 px-3 py-1.5 bg-slate-50/95 border-t border-slate-200/70">
-        {!isSystemAdmin && (
-          <>
-            <Link
-              to="/receipts"
-              className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-xl text-xs font-bold transition ${
-                location.pathname === "/receipts"
-                  ? "bg-[#168821] text-white shadow-xs"
-                  : "bg-white text-slate-700 border border-slate-200 hover:bg-emerald-50 hover:text-[#168821]"
-              }`}
-            >
-              <Receipt className="w-3.5 h-3.5 shrink-0" />
-              <span>Receipt</span>
-            </Link>
+      {/* On mobile, Receipts / Reports / Supply / Loans / Password live in the profile dropdown */}
 
-            <Link
-              to="/reports"
-              className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-xl text-xs font-bold transition ${
-                location.pathname === "/reports"
-                  ? "bg-[#168821] text-white shadow-xs"
-                  : "bg-white text-slate-700 border border-slate-200 hover:bg-emerald-50 hover:text-[#168821]"
-              }`}
-            >
-              <FileBarChart className="w-3.5 h-3.5 shrink-0" />
-              <span>Report</span>
-            </Link>
-          </>
-        )}
-
-        {isManager && (
-          <button
-            type="button"
-            onClick={() => window.dispatchEvent(new CustomEvent("open-supply-modal"))}
-            className="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-xl text-xs font-bold transition bg-[#168821] text-white hover:bg-[#126e1a] cursor-pointer shadow-xs"
-          >
-            <span>Supply</span>
-          </button>
-        )}
-
-        <button
-          type="button"
-          onClick={() => setChangePasswordOpen(true)}
-          className="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-xl text-xs font-bold transition bg-white text-amber-800 border border-amber-300 hover:bg-amber-50 cursor-pointer"
-        >
-          <KeyRound className="w-3.5 h-3.5 shrink-0 text-amber-600" />
-          <span>Password</span>
-        </button>
-      </div>
+      <ProfilePhotoModal isOpen={photoOpen} onClose={() => setPhotoOpen(false)} />
 
       {/* Change Password Modal */}
       <ChangePasswordModal

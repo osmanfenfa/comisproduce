@@ -1,5 +1,4 @@
 import { create } from "zustand";
-import { clearOfflineApiCache } from "../offline/registerServiceWorker.js";
 
 const STORAGE_KEY = "comis_auth_session";
 
@@ -17,6 +16,7 @@ function loadInitialState() {
         produceId: data.produceId || null,
         produceName: produce,
         stationName: data.stationName || produce,
+        avatarUrl: data.avatarUrl || null,
       };
     }
   } catch (e) {
@@ -28,6 +28,7 @@ function loadInitialState() {
     name: "",
     userId: null,
     produceId: null,
+    avatarUrl: null,
     produceName: "Confidence Produce",
     stationName: "Main Station",
   };
@@ -36,7 +37,7 @@ function loadInitialState() {
 export const useAuthStore = create((set) => ({
   ...loadInitialState(),
 
-  login: ({ token, role, name, userId, stationName, businessName, produceName, produceId, produce_id }) => {
+  login: ({ token, role, name, userId, stationName, businessName, produceName, produceId, produce_id, avatarUrl }) => {
     const resolvedProduce = produceName || businessName || "COMIS Produce";
     const resolvedStation = stationName || resolvedProduce;
     const resolvedProduceId = produceId || produce_id || null;
@@ -48,6 +49,7 @@ export const useAuthStore = create((set) => ({
       produceId: resolvedProduceId,
       produceName: resolvedProduce,
       stationName: resolvedStation,
+      avatarUrl: avatarUrl || null,
     };
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
@@ -55,6 +57,19 @@ export const useAuthStore = create((set) => ({
       console.error("Failed to save auth session", e);
     }
     set(session);
+  },
+
+  setAvatar: (avatarUrl) => {
+    set((state) => {
+      const updated = { ...state, avatarUrl: avatarUrl || null };
+      try {
+        const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...raw, avatarUrl: updated.avatarUrl }));
+      } catch (e) {
+        console.error("Failed to save profile photo", e);
+      }
+      return updated;
+    });
   },
 
   updateProfile: ({ name, stationName, produceName }) => {
@@ -75,7 +90,6 @@ export const useAuthStore = create((set) => ({
   },
 
   logout: () => {
-    clearOfflineApiCache();
     try {
       localStorage.removeItem(STORAGE_KEY);
     } catch (e) {

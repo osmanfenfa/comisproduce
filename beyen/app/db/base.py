@@ -6,4 +6,4 @@ class Base(DeclarativeBase):
 
 
 # Import all models here so Alembic can detect them for migrations
-from app.models import user, seller, cocoa, coffee, cola, loan, settings_model, audit_log, receipt, supply  # noqa
+from app.models import user, seller, cocoa, coffee, cola, loan, settings_model, audit_log, receipt, supply, market  # noqa

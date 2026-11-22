@@ -6,6 +6,9 @@ import { useAuthStore } from "../../store/authStore.js";
 export default function ProtectedRoute({ children, roles }) {
   const role = useAuthStore((s) => s.role);
   if (!role) return <Navigate to="/login" replace />;
-  if (roles && !roles.includes(role)) return <Navigate to="/" replace />;
+  if (roles && !roles.includes(role)) {
+    // "/" sends farmers/traders on to the market, so this never loops
+    return <Navigate to={role === "farmer" || role === "trader" ? "/market" : "/"} replace />;
+  }
   return children;
 }

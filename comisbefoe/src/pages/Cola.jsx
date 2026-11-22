@@ -3,7 +3,6 @@ import client from "../api/client.js";
 import { useAuthStore } from "../store/authStore.js";
 import { useAppStore } from "../store/appStore.js";
 import { calculateDirectPrice } from "../utils/pricing.js";
-import { queueOfflinePurchase, newClientRef, isNetworkError } from "../offline/syncQueue.js";
 import { 
   ShoppingBag, CheckCircle, AlertCircle, Clock, 
   X, Check, Printer, FileText, ChevronDown, User, UserPlus
@@ -131,32 +130,20 @@ export default function Cola() {
       price_per_kg: price,
     };
 
-    // Device-generated reference: if the connection drops mid-request and the purchase is
-    // re-sent from the offline queue, the server records it only once.
-    payload.client_ref = newClientRef();
-
     setSubmitting(true);
     try {
-      if (!navigator.onLine) {
-        await queueOfflinePurchase("cola", payload);
-        setFormMessage({
-          type: "success",
-          text: "Offline: Purchase saved to local queue! It will sync when connected.",
-        });
-      } else {
-        await client.post("/cola/", payload);
-        setFormMessage({
-          type: "success",
-          text: isSecretary
-            ? "Purchase recorded as PENDING. Approve and issue the receipt below, then sync at the end of the day."
-            : "Purchase recorded successfully as PENDING for review!",
-        });
-        if (canReview) {
-          loadPendingPurchases();
-        }
-        if (sellerMode === "random") {
-          fetchSellers();
-        }
+      await client.post("/cola/", payload);
+      setFormMessage({
+        type: "success",
+        text: isSecretary
+          ? "Purchase recorded as PENDING. Approve and issue the receipt below, then sync at the end of the day."
+          : "Purchase recorded successfully as PENDING for review!",
+      });
+      if (canReview) {
+        loadPendingPurchases();
+      }
+      if (sellerMode === "random") {
+        fetchSellers();
       }
       // Reset
       setWeightKg("");
@@ -166,20 +153,12 @@ export default function Cola() {
         setRandomContact("");
       }
     } catch (err) {
-      if (isNetworkError(err)) {
-        // Weak signal: the phone thought it was online but the server never answered
-        await queueOfflinePurchase("cola", payload);
-        setFormMessage({
-          type: "success",
-          text: "No connection: purchase saved on this phone. It will sync automatically when back online.",
-        });
-        setWeightKg("");
-      } else {
-        setFormMessage({
-          type: "error",
-          text: err.response?.data?.detail || "Failed to record purchase.",
-        });
-      }
+      setFormMessage({
+        type: "error",
+        text: err.response
+          ? err.response.data?.detail || "Failed to record purchase."
+          : "No connection. Check your internet and try again.",
+      });
     } finally {
       setSubmitting(false);
     }

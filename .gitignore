@@ -18,3 +18,7 @@ dist/
 .pytest_cache/
 COMIS-*.md
 
+
+# Marketplace uploads (local storage)
+beyen/media/
+beyen/private_media/

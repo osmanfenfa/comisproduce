@@ -27,6 +27,39 @@ class Settings(BaseSettings):
     ADMIN_EMAIL: str | None = None
     ADMIN_PASSWORD: str | None = None
 
+    # Marketplace photo/video storage. Local disk by default; on hosts with an
+    # ephemeral disk (e.g. Render) point MEDIA_ROOT at a persistent disk.
+    MEDIA_ROOT: str = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../media"))
+    MEDIA_URL_PREFIX: str = "/media"
+    # Identity documents: private, never served from /media (only via authenticated endpoints)
+    PRIVATE_MEDIA_ROOT: str = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../private_media"))
+
+    # SMS for phone verification codes. "console" prints codes (development only);
+    # in production no provider means phone verification is unavailable.
+    SMS_PROVIDER: str = "console"
+
+    # Shared rate-limit counters (optional). Without it, limits are kept in memory per process.
+    REDIS_URL: str | None = None
+
+    # Photos and videos (listings, profile photos) on Cloudinary. Format:
+    #   cloudinary://<api_key>:<api_secret>@<cloud_name>
+    # Without it, files are stored on the server's disk under MEDIA_ROOT.
+    CLOUDINARY_URL: str | None = None
+
+    # Password-reset emails (read from .env; Render/Docker can also set them as env vars)
+    SMTP_HOST: str | None = None
+    SMTP_PORT: int = 587
+    SMTP_USER: str | None = None
+    SMTP_PASSWORD: str | None = None
+    FRONTEND_URL: str = "http://localhost:5173"   # base of the reset link in emails
+
+    # Reading the NIN / passport number from ID photos.
+    # "local": free offline engine (pip install rapidocr_onnxruntime), run in a child process;
+    # "ocrspace": OCR.space cloud API (needs OCR_SPACE_API_KEY; sends the photo to them);
+    # "none": members type the number. An admin reviews every document either way.
+    OCR_PROVIDER: str = "local"
+    OCR_SPACE_API_KEY: str | None = None
+
     model_config = SettingsConfigDict(
         env_file=ENV_FILE_PATH,
         env_file_encoding="utf-8",

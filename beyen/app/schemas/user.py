@@ -115,4 +115,5 @@ class Token(BaseModel):
     business_name: str | None = None
     produce_name: str | None = None
     produce_id: uuid.UUID | None = None
+    avatar_url: str | None = None
 

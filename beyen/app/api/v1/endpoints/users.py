@@ -270,7 +270,7 @@ def update_me(
 def change_my_password(
     payload: ChangePasswordRequest,
     db: Session = Depends(get_db),
-    current=Depends(ANY_STAFF),
+    current=Depends(get_current_user),   # every account type, including farmers/traders
 ):
     """Change password for authenticated user."""
     user = db.query(User).filter(User.id == current["id"]).first()

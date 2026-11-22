@@ -132,7 +132,7 @@ export default function PrivacyPolicy() {
               <li>One-way cryptographic hashing of passwords (no plain-text password storage);</li>
               <li>Role-based access control enforced at the server API level;</li>
               <li>Append-only audit logging of transactions, loans, and receipts;</li>
-              <li>Secure client-side caching for offline operations.</li>
+              <li>Data stored on secure servers rather than kept on users' devices.</li>
             </ul>
           </section>
 

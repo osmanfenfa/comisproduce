@@ -58,7 +58,7 @@ export default function About() {
                 <strong>Supply Outbound to Buyer Companies:</strong> Streamlines outbound produce sales from stations to large buyer companies, recording total kilograms, bags, water percentages, and witness signatures.
               </li>
               <li>
-                <strong>Offline-Ready Architecture:</strong> Designed for rural buying centers where cellular data can drop unexpectedly. Station staff can continue logging entries offline; data synchronizes when connectivity is restored.
+                <strong>Light on Data:</strong> Built mobile-first for rural buying centers, with small pages and photos compressed on the phone before upload to keep mobile data costs low.
               </li>
             </ul>
           </div>

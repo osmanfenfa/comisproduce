@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { X, ShieldCheck, FileText, ScrollText, CheckCircle, Mail, ExternalLink } from "lucide-react";
+import { useState } from "react";
+import { X, ShieldCheck, FileText, ScrollText, CheckCircle } from "lucide-react";
 
 export default function LegalModal({ isOpen, initialTab = "terms", onClose, onAgree }) {
   const [activeTab, setActiveTab] = useState(initialTab);
@@ -161,9 +161,9 @@ export default function LegalModal({ isOpen, initialTab = "terms", onClose, onAg
               </div>
 
               <div>
-                <h5 className="font-bold text-slate-900 mb-1">2. Offline Storage & Synchronization</h5>
+                <h5 className="font-bold text-slate-900 mb-1">2. Data Storage</h5>
                 <p className="leading-relaxed">
-                  To ensure uninterrupted station operations in rural areas, COMIS stores data locally in secure browser storage (IndexedDB/Cache) and synchronizes with secure cloud servers once internet connectivity is restored.
+                  COMIS stores your data on secure cloud servers. An internet connection is needed to record and view data; the app does not keep copies of your records on the device.
                 </p>
               </div>
 

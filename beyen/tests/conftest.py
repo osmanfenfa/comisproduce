@@ -9,6 +9,15 @@ ADMIN_PASSWORD = "Test-Admin-Password-1"
 os.environ.setdefault("DATABASE_URL", "sqlite:///./test_comis.db")
 os.environ.setdefault("SECRET_KEY", "test-secret-key-that-is-long-enough-for-validation")
 os.environ["APP_ENV"] = "testing"
+import tempfile
+os.environ["MEDIA_ROOT"] = tempfile.mkdtemp(prefix="comis-media-")
+os.environ["PRIVATE_MEDIA_ROOT"] = tempfile.mkdtemp(prefix="comis-private-")
+os.environ["OCR_PROVIDER"] = "none"
+# Never send real email/SMS from tests, even if beyen/.env has SMTP settings
+os.environ["SMTP_HOST"] = ""
+# Tests use in-memory rate limits and local file storage, never the real Redis/Cloudinary
+os.environ["REDIS_URL"] = ""
+os.environ["CLOUDINARY_URL"] = ""
 os.environ["ADMIN_EMAIL"] = ADMIN_CONTACT
 os.environ["ADMIN_PASSWORD"] = ADMIN_PASSWORD
 

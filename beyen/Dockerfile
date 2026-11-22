@@ -3,7 +3,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
-RUN useradd --system --no-create-home comis && chown -R comis /app
+RUN mkdir -p /app/media /app/private_media && useradd --system --no-create-home comis && chown -R comis /app
 USER comis
 EXPOSE 8000
 # Apply migrations + seed, then serve. --proxy-headers makes rate limiting see the

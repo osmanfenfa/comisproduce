@@ -2,7 +2,7 @@ from fastapi import APIRouter
 from app.api.v1.endpoints import (
     auth, users, sellers, cocoa, coffee, cola, sync, payouts,
     loans, dashboard, settings_routes,
-    receipts, audit_logs, reports, supplies,
+    receipts, audit_logs, reports, supplies, market, farmer, profile,
 )
 
 api_router = APIRouter()
@@ -21,3 +21,6 @@ api_router.include_router(settings_routes.router,  prefix="/settings",    tags=[
 api_router.include_router(audit_logs.router,       prefix="/audit-logs",  tags=["Audit Logs"])
 api_router.include_router(reports.router,          prefix="/reports",     tags=["Reports"])
 api_router.include_router(supplies.router,         prefix="/supplies",    tags=["Supplies"])
+api_router.include_router(market.router,            prefix="/market",      tags=["Market"])
+api_router.include_router(farmer.router,            prefix="/farmer",      tags=["Farmer"])
+api_router.include_router(profile.router,           prefix="/profile",     tags=["Profile"])

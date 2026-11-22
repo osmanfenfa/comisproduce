@@ -54,7 +54,7 @@ export default function TermsOfService() {
           <section className="space-y-2">
             <h2 className="text-lg font-bold text-slate-900">2. Definitions</h2>
             <ul className="list-disc pl-6 space-y-1 text-slate-700">
-              <li><strong>"Service"</strong> means the COMIS mobile-first web application, including all associated APIs, dashboards, and offline (PWA) functionality.</li>
+              <li><strong>"Service"</strong> means the COMIS mobile-first web application, including all associated APIs and dashboards.</li>
               <li><strong>"Account"</strong> means a registered System Admin, Produce Manager, or Produce Secretary login within the Service.</li>
               <li><strong>"Customer Data"</strong> means all data entered into the Service by or on behalf of the Customer, including Seller information, produce transaction records, loan records, receipts, and supply shipments.</li>
               <li><strong>"Seller"</strong> means an individual farmer or produce supplier whose information is recorded within the Service by Customer staff.</li>
@@ -75,7 +75,7 @@ export default function TermsOfService() {
           <section className="space-y-2">
             <h2 className="text-lg font-bold text-slate-900">4. Description of the Service</h2>
             <p>
-              COMIS provides a role-based digital platform for recording cocoa, coffee, and cola nut produce purchases (including automated moisture-deduction and weight-based pricing calculations), managing seller records, managing loans issued to sellers, generating official receipts, tracking bag quantities, recording bulk supplies to buyers, and producing operational reports. The Service is designed to function in offline or intermittent-connectivity conditions, with data synchronization occurring once connectivity is restored.
+              COMIS provides a role-based digital platform for recording cocoa, coffee, and cola nut produce purchases (including automated moisture-deduction and weight-based pricing calculations), managing seller records, managing loans issued to sellers, generating official receipts, tracking bag quantities, recording bulk supplies to buyers, and producing operational reports. The Service requires an internet connection to record and view data.
             </p>
             <p>
               COMIS may add, modify, or remove features of the Service at its discretion, and will make reasonable efforts to notify Customers of material changes that affect core functionality.
@@ -145,7 +145,7 @@ export default function TermsOfService() {
           <section className="space-y-2">
             <h2 className="text-lg font-bold text-slate-900">11. Service Availability and Support</h2>
             <p>
-              COMIS will use commercially reasonable efforts to maintain the availability of the Service but does not guarantee uninterrupted or error-free operation. Scheduled maintenance, third-party infrastructure outages, or connectivity issues at the Customer's location may affect availability. The Service's offline mode is designed to mitigate, but cannot eliminate, the impact of connectivity interruptions.
+              COMIS will use commercially reasonable efforts to maintain the availability of the Service but does not guarantee uninterrupted or error-free operation. Scheduled maintenance, third-party infrastructure outages, or connectivity issues at the Customer's location may affect availability. The Service cannot be used while the Customer's device has no internet connection.
             </p>
           </section>
 

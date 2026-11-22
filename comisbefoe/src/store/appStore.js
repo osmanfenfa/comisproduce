@@ -1,6 +1,5 @@
 import { create } from "zustand";
 import client from "../api/client.js";
-import { cacheSellers, getCachedSellers } from "../offline/syncQueue.js";
 
 export const useAppStore = create((set, get) => ({
   prices: {
@@ -27,14 +26,8 @@ export const useAppStore = create((set, get) => ({
     try {
       const { data } = await client.get("/sellers/");
       set({ sellers: data, loadingSellers: false });
-      await cacheSellers(data);
-    } catch (err) {
-      const cached = await getCachedSellers();
-      if (cached && cached.length) {
-        set({ sellers: cached, loadingSellers: false });
-      } else {
-        set({ loadingSellers: false });
-      }
+    } catch {
+      set({ loadingSellers: false });
     }
   },
 

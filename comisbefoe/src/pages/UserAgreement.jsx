@@ -76,7 +76,6 @@ export default function UserAgreement() {
               <li>You will keep your password confidential and will not share your login credentials with any other person, including co-workers of a different role.</li>
               <li>You are responsible for all activity recorded under your Account, whether or not you personally performed it, except where you have promptly reported unauthorized access as described in Section 9.</li>
               <li>You will use a strong, unique password and will change it immediately if you suspect it has been compromised.</li>
-              <li>If your role requires a device PIN for offline access, you will not disclose this PIN to unauthorized individuals.</li>
             </ul>
           </section>
 
@@ -143,9 +142,9 @@ export default function UserAgreement() {
           </section>
 
           <section className="space-y-2">
-            <h2 className="text-lg font-bold text-slate-900">11. Offline Use</h2>
+            <h2 className="text-lg font-bold text-slate-900">11. Internet Connection</h2>
             <p>
-              You understand that data entered while offline is queued locally and will still be subject to the same approval workflow once synchronized — offline use does not grant any User additional authority beyond their assigned role.
+              You understand that COMIS needs an internet connection to record and view data. Entries are saved only once the server confirms them; if the connection fails, re-enter the entry when you are back online.
             </p>
           </section>
 

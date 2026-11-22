@@ -1,6 +1,9 @@
-import { NavLink, useNavigate } from "react-router-dom";
+import { useState } from "react";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useAuthStore } from "../../store/authStore.js";
-import { Home, RotateCcw, LogOut, UserPlus } from "lucide-react";
+import { useNotificationStore } from "../../store/notificationStore.js";
+import CountBadge from "../shared/CountBadge.jsx";
+import { Home, RotateCcw, LogOut, UserPlus, Store, PlusSquare, Handshake, UserRound, Flag, ShoppingBasket } from "lucide-react";
 
 // Illustrated commodity icons
 function CocoaPodIcon({ className = "w-6 h-6" }) {
@@ -60,10 +63,13 @@ function ColaNutIcon({ className = "w-6 h-6" }) {
 
 // Compact, icon-only tab (X/Twitter style): full-height tap target, small icon,
 // active tab shown by a brighter icon and a short marker underneath.
-function TabIcon({ active, children }) {
+function TabIcon({ active, children, badge = 0 }) {
   return (
     <span className="relative flex items-center justify-center h-full w-full">
-      <span className={`transition-opacity ${active ? "opacity-100" : "opacity-70"}`}>{children}</span>
+      <span className={`relative transition-opacity ${active ? "opacity-100" : "opacity-70"}`}>
+        {children}
+        <CountBadge count={badge} className="absolute -top-1.5 -right-2.5" />
+      </span>
       <span
         className={`absolute bottom-1 h-[3px] w-4 rounded-full bg-[#e5a900] transition-opacity ${
           active ? "opacity-100" : "opacity-0"
@@ -73,7 +79,7 @@ function TabIcon({ active, children }) {
   );
 }
 
-function Tab({ to, label, end = false, children }) {
+function Tab({ to, label, end = false, badge = 0, children }) {
   return (
     <NavLink
       to={to}
@@ -82,7 +88,7 @@ function Tab({ to, label, end = false, children }) {
       title={label}
       className="flex-1 h-full focus:outline-none active:scale-95 transition-transform"
     >
-      {({ isActive }) => <TabIcon active={isActive}>{children(isActive)}</TabIcon>}
+      {({ isActive }) => <TabIcon active={isActive} badge={badge}>{children(isActive)}</TabIcon>}
     </NavLink>
   );
 }
@@ -94,6 +100,7 @@ const LUCIDE = (active) => `w-[22px] h-[22px] text-white ${active ? "stroke-[2.6
 
 export default function BottomNav() {
   const { role, logout } = useAuthStore();
+  const notifications = useNotificationStore((s) => s.total);
   const navigate = useNavigate();
 
   if (!role) return null;
@@ -103,13 +110,28 @@ export default function BottomNav() {
     navigate("/login");
   };
 
-  // SYSTEM ADMIN: Home | Audit/Logs | Logout
+  // FARMER & TRADER (COMIS Market): Market | Post | Activity | Me
+  if (role === "farmer" || role === "trader") {
+    return (
+      <nav className={BAR}>
+        <div className={ROW}>
+          <Tab to="/market" end label="Market">{(a) => <Store className={LUCIDE(a)} />}</Tab>
+          <Tab to="/market/new" label="Post">{(a) => <PlusSquare className={LUCIDE(a)} />}</Tab>
+          <Tab to="/market/activity" label="My activity" badge={notifications}>{(a) => <Handshake className={LUCIDE(a)} />}</Tab>
+          <Tab to="/market/me" label="Me">{(a) => <UserRound className={LUCIDE(a)} />}</Tab>
+        </div>
+      </nav>
+    );
+  }
+
+  // SYSTEM ADMIN: Home | Audit/Logs | Market moderation | Logout
   if (role === "system_admin") {
     return (
       <nav className={BAR}>
         <div className={ROW}>
           <Tab to="/" end label="Home">{(a) => <Home className={LUCIDE(a)} />}</Tab>
           <Tab to="/audit-logs" label="Audit logs">{(a) => <RotateCcw className={LUCIDE(a)} />}</Tab>
+          <Tab to="/market/moderation" label="Market moderation">{(a) => <Flag className={LUCIDE(a)} />}</Tab>
           <button
             onClick={handleLogout}
             aria-label="Logout"
@@ -123,16 +145,79 @@ export default function BottomNav() {
     );
   }
 
-  // PRODUCE MANAGER & SECRETARY: Home | Users | Cocoa | Coffee | Cola
+  // PRODUCE MANAGER & SECRETARY: Home | Users | Buy (Cocoa / Coffee / Cola) | Market
+  return <StationNav notifications={notifications} />;
+}
+
+const BUY_OPTIONS = [
+  { to: "/cocoa", label: "Cocoa", Icon: CocoaPodIcon },
+  { to: "/coffee", label: "Coffee", Icon: CoffeeBeanIcon },
+  { to: "/cola", label: "Cola", Icon: ColaNutIcon },
+];
+
+function StationNav({ notifications }) {
+  const [buyOpen, setBuyOpen] = useState(false);
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const buyActive = BUY_OPTIONS.some((o) => o.to === pathname);
+  const current = BUY_OPTIONS.find((o) => o.to === pathname);
+
   return (
-    <nav className={BAR}>
-      <div className={ROW}>
-        <Tab to="/" end label="Home">{(a) => <Home className={LUCIDE(a)} />}</Tab>
-        <Tab to="/users" label="Users & sellers">{(a) => <UserPlus className={LUCIDE(a)} />}</Tab>
-        <Tab to="/cocoa" label="Cocoa">{() => <CocoaPodIcon className="w-[22px] h-[22px]" />}</Tab>
-        <Tab to="/coffee" label="Coffee">{() => <CoffeeBeanIcon className="w-[22px] h-[22px]" />}</Tab>
-        <Tab to="/cola" label="Cola">{() => <ColaNutIcon className="w-[22px] h-[22px]" />}</Tab>
-      </div>
-    </nav>
+    <>
+      {/* "Buy" picker: opens above the bar */}
+      {buyOpen && (
+        <>
+          <div className="md:hidden fixed inset-0 z-40 bg-black/30" onClick={() => setBuyOpen(false)} />
+          <div className="md:hidden fixed left-0 right-0 z-50 px-3 bottom-[calc(3rem+env(safe-area-inset-bottom)+0.5rem)]">
+            <div className="max-w-lg mx-auto border-2 border-[#168821] rounded-2xl overflow-hidden bg-white shadow-xl">
+              <div className="bg-[#d4a000] text-[#0f5c18] font-black text-xs px-4 py-1.5 uppercase tracking-wide">
+                Buy produce
+              </div>
+              <div className="grid grid-cols-3 gap-2 p-3">
+                {BUY_OPTIONS.map(({ to, label, Icon }) => (
+                  <button
+                    key={to}
+                    onClick={() => {
+                      setBuyOpen(false);
+                      navigate(to);
+                    }}
+                    className={`flex flex-col items-center gap-1 rounded-xl py-2.5 border transition cursor-pointer active:scale-95 ${
+                      pathname === to ? "border-[#168821] bg-emerald-50" : "border-slate-200 hover:bg-slate-50"
+                    }`}
+                  >
+                    <Icon className="w-8 h-8" />
+                    <span className="text-xs font-bold text-slate-800">{label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      <nav className={BAR}>
+        <div className={ROW}>
+          <Tab to="/" end label="Home">{(a) => <Home className={LUCIDE(a)} />}</Tab>
+          <Tab to="/users" label="Users & sellers">{(a) => <UserPlus className={LUCIDE(a)} />}</Tab>
+          <button
+            onClick={() => setBuyOpen((v) => !v)}
+            aria-label="Buy produce"
+            aria-expanded={buyOpen}
+            title="Buy"
+            className="flex-1 h-full focus:outline-none active:scale-95 transition-transform cursor-pointer"
+          >
+            <TabIcon active={buyActive || buyOpen}>
+              {/* Shows the commodity you're on, otherwise a basket */}
+              {current ? (
+                <current.Icon className="w-[22px] h-[22px]" />
+              ) : (
+                <ShoppingBasket className={LUCIDE(buyActive || buyOpen)} />
+              )}
+            </TabIcon>
+          </button>
+          <Tab to="/market" label="Market" badge={notifications}>{(a) => <Store className={LUCIDE(a)} />}</Tab>
+        </div>
+      </nav>
+    </>
   );
 }

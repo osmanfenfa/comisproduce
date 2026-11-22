@@ -32,7 +32,7 @@ def test_forgot_password_flow(client, db):
     # Request forgot password
     res = client.post("/api/v1/auth/forgot-password", json={"email": "resetuser@comis.org"})
     assert res.status_code == 200
-    assert "password reset instructions have been sent" in res.json()["message"]
+    assert "reset code has been sent" in res.json()["message"]
     
     # Check that email was sent to buffer
     assert len(SENT_EMAILS_BUFFER) == 1
@@ -297,3 +297,24 @@ def test_admin_suspend_delete_and_uniqueness(client, db):
     deleted_check = db.query(User).filter(User.id == _uuid.UUID(mgr_id)).first()
     assert deleted_check is None
 
+
+
+def test_forgot_password_by_phone_sends_sms(client, db):
+    """Farmers/traders have no email: the reset code goes by SMS, and 076... / +232... both work."""
+    from app.services.sms import SENT_SMS_BUFFER
+    import uuid as _uuid
+    phone = "07" + str(_uuid.uuid4().int)[:7]
+    r = client.post("/api/v1/market/signup", json={
+        "account_type": "farmer", "name": "Reset Farmer", "phone": phone, "password": "OldPassword123!",
+        "district": "Bo", "terms_accepted": True})
+    assert r.status_code == 201
+    SENT_SMS_BUFFER.clear()
+    SENT_EMAILS_BUFFER.clear()
+    assert client.post("/api/v1/auth/forgot-password", json={"email": phone}).status_code == 200
+    assert SENT_EMAILS_BUFFER == []
+    code = SENT_SMS_BUFFER[-1]["message"].split("code is ")[1][:6]
+
+    r = client.post("/api/v1/auth/reset-password", json={
+        "token": code, "email": "+232" + phone[1:], "new_password": "NewPassword123!"})
+    assert r.status_code == 200, r.text
+    assert client.post("/api/v1/auth/login", json={"contact": phone, "password": "NewPassword123!"}).status_code == 200

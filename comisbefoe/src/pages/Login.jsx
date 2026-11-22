@@ -5,9 +5,17 @@ import { useAuthStore } from "../store/authStore.js";
 import { 
   Mail, Lock, MapPin, Phone, Building2,
   LayoutGrid, Eye, EyeOff, AlertCircle, CheckCircle2,
-  KeyRound, ArrowLeft, X, Sparkles, Loader2
+  KeyRound, ArrowLeft, X, Sparkles, Loader2, User, Store, Sprout, ShoppingBasket
 } from "lucide-react";
 import LegalModal from "../components/shared/LegalModal.jsx";
+import { DISTRICTS } from "../utils/locations.js";
+import { isMarketRole } from "../utils/market.js";
+
+const ACCOUNT_TYPES = [
+  { key: "buyer", label: "Produce Buyer", hint: "I run a buying station", Icon: Store },
+  { key: "farmer", label: "Farmer", hint: "I grow and sell", Icon: Sprout },
+  { key: "trader", label: "Trader", hint: "I buy and sell farm goods", Icon: ShoppingBasket },
+];
 
 const GOOGLE_CLIENT_ID =
   import.meta.env.VITE_GOOGLE_CLIENT_ID ||
@@ -31,6 +39,15 @@ export default function Login({ initialMode = "signin" }) {
   const [regPassword, setRegPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isAgreed, setIsAgreed] = useState(false);
+
+  // Sign Up: account type. "buyer" = buying station (existing flow); farmer/trader = COMIS Market
+  const [accountType, setAccountType] = useState("buyer");
+  const [fullName, setFullName] = useState("");
+  const [district, setDistrict] = useState("");
+  const [chiefdom, setChiefdom] = useState("");
+  const [traderBusiness, setTraderBusiness] = useState("");
+  const isMarketSignup = accountType !== "buyer";
+  const AccountTypeIcon = ACCOUNT_TYPES.find((t) => t.key === accountType).Icon;
 
   // Legal Modal
   const [showLegalModal, setShowLegalModal] = useState(false);
@@ -104,10 +121,11 @@ export default function Login({ initialMode = "signin" }) {
         produceId: data.produce_id,
         produceName: data.produce_name || data.business_name || data.station_name,
         stationName: data.station_name || data.produce_name,
+        avatarUrl: data.avatar_url,
       });
-      navigate("/");
+      navigate(isMarketRole(data.role) ? "/market" : "/");
     } catch (err) {
-      const msg = err.response?.data?.detail || "Login failed. Check your email and password.";
+      const msg = err.response?.data?.detail || "Login failed. Check your email or phone number and password.";
       setError(msg);
     } finally {
       setLoading(false);
@@ -159,6 +177,53 @@ export default function Login({ initialMode = "signin" }) {
     }
   }
 
+  // Farmer / Trader sign up: active immediately, logged straight in
+  async function handleMarketRegister(e) {
+    e.preventDefault();
+    setError("");
+    setSuccess("");
+    if (!isAgreed) {
+      setError("You must agree to the Terms of Service, User Agreement, and Privacy Policy before signing up.");
+      return;
+    }
+    if (regPassword !== confirmPassword) {
+      setError("Passwords do not match. Please re-enter.");
+      return;
+    }
+    if (regPassword.length < 8) {
+      setError("Password must be at least 8 characters long.");
+      return;
+    }
+    setLoading(true);
+    try {
+      const { data } = await client.post("/market/signup", {
+        account_type: accountType,
+        name: fullName.trim(),
+        phone: phoneNumber,
+        password: regPassword,
+        district,
+        chiefdom: chiefdom.trim() || null,
+        business_name: accountType === "trader" ? traderBusiness.trim() || null : null,
+        terms_accepted: true,
+      });
+      login({
+        token: data.access_token,
+        role: data.role,
+        name: data.name,
+        userId: data.user_id,
+        produceName: data.business_name || data.name,
+        stationName: data.business_name || data.name,
+        avatarUrl: data.avatar_url,
+      });
+      navigate("/market");
+    } catch (err) {
+      const detail = err.response?.data?.detail;
+      setError(Array.isArray(detail) ? "Please check the form and try again." : detail || "Sign up failed. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   // Forgot Password: Step 1 (Request 6-digit code via email)
   async function handleSendForgotEmail(e) {
     e.preventDefault();
@@ -170,7 +235,7 @@ export default function Login({ initialMode = "signin" }) {
       await client.post("/auth/forgot-password", {
         email: forgotEmail.trim(),
       });
-      setForgotSuccess("Instructions and 6-digit code sent. Please check your inbox.");
+      setForgotSuccess("If the account exists, a 6-digit code was sent to its email or phone.");
       setForgotStep(2);
     } catch (err) {
       setForgotError(err.response?.data?.detail || "Failed to send reset code. Please try again.");
@@ -292,6 +357,7 @@ export default function Login({ initialMode = "signin" }) {
               produceId: data.produce_id,
               produceName: data.produce_name || data.business_name || data.station_name,
               stationName: data.station_name || data.produce_name,
+              avatarUrl: data.avatar_url,
             });
             navigate("/");
           } catch (err) {
@@ -442,9 +508,11 @@ export default function Login({ initialMode = "signin" }) {
                       <Mail className="w-5 h-5 text-white" />
                     </div>
                     <input
-                      type="email"
+                      type="text"
+                      inputMode="email"
+                      autoComplete="username"
                       required
-                      placeholder="Email"
+                      placeholder="Email or phone number"
                       value={loginEmail}
                       onChange={(e) => setLoginEmail(e.target.value)}
                       className="w-full px-3.5 py-2 sm:py-2.5 text-slate-800 placeholder-slate-400 text-sm focus:outline-none bg-transparent"
@@ -554,8 +622,43 @@ export default function Login({ initialMode = "signin" }) {
               /* =========================================================================
                  SIGN UP VIEW (Produce Name & Mandatory Legal Agreements)
                  ========================================================================= */
-              <form onSubmit={handleRegister} className="w-full mt-2.5 flex flex-col">
+              <form onSubmit={isMarketSignup ? handleMarketRegister : handleRegister} className="w-full mt-2.5 flex flex-col">
                 <div className="space-y-2">
+                  {isMarketSignup ? (
+                    <>
+                      {/* Full name */}
+                      <div className="flex items-center border border-slate-700 rounded-full overflow-hidden bg-white shadow-2xs focus-within:border-[#168821] focus-within:ring-2 focus-within:ring-[#168821]/20 transition">
+                        <div className="w-10 h-9 bg-[#168821] flex items-center justify-center shrink-0 border-r border-slate-700">
+                          <User className="w-4.5 h-4.5 text-white" />
+                        </div>
+                        <input type="text" required minLength={2} placeholder="Full Name" value={fullName}
+                          onChange={(e) => setFullName(e.target.value)}
+                          className="w-full px-3 py-1.5 sm:py-2 text-slate-800 placeholder-slate-400 text-xs sm:text-sm focus:outline-none bg-transparent font-medium" />
+                      </div>
+
+                      {accountType === "trader" && (
+                        <div className="flex items-center border border-slate-700 rounded-full overflow-hidden bg-white shadow-2xs focus-within:border-[#168821] focus-within:ring-2 focus-within:ring-[#168821]/20 transition">
+                          <div className="w-10 h-9 bg-[#168821] flex items-center justify-center shrink-0 border-r border-slate-700">
+                            <Building2 className="w-4.5 h-4.5 text-white" />
+                          </div>
+                          <input type="text" placeholder="Business Name (optional)" value={traderBusiness}
+                            onChange={(e) => setTraderBusiness(e.target.value)}
+                            className="w-full px-3 py-1.5 sm:py-2 text-slate-800 placeholder-slate-400 text-xs sm:text-sm focus:outline-none bg-transparent font-medium" />
+                        </div>
+                      )}
+
+                      {/* Phone (used to log in) */}
+                      <div className="flex items-center border border-slate-700 rounded-full overflow-hidden bg-white shadow-2xs focus-within:border-[#168821] focus-within:ring-2 focus-within:ring-[#168821]/20 transition">
+                        <div className="w-10 h-9 bg-[#168821] flex items-center justify-center shrink-0 border-r border-slate-700">
+                          <Phone className="w-4.5 h-4.5 text-white" />
+                        </div>
+                        <input type="tel" required placeholder="Phone Number (e.g. 076 123 456)" value={phoneNumber}
+                          onChange={(e) => setPhoneNumber(e.target.value)}
+                          className="w-full px-3 py-1.5 sm:py-2 text-slate-800 placeholder-slate-400 text-xs sm:text-sm focus:outline-none bg-transparent font-medium" />
+                      </div>
+                    </>
+                  ) : (
+                  <>
                   {/* Produce Name */}
                   <div className="flex items-center border border-slate-700 rounded-full overflow-hidden bg-white shadow-2xs focus-within:border-[#168821] focus-within:ring-2 focus-within:ring-[#168821]/20 transition">
                     <div className="w-10 h-9 bg-[#168821] flex items-center justify-center shrink-0 border-r border-slate-700">
@@ -615,6 +718,45 @@ export default function Login({ initialMode = "signin" }) {
                       className="w-full px-3 py-1.5 sm:py-2 text-slate-800 placeholder-slate-400 text-xs sm:text-sm focus:outline-none bg-transparent font-medium"
                     />
                   </div>
+                  </>
+                  )}
+
+                  {/* What best describes you? (after contact) */}
+                  <div className="flex items-center border border-slate-700 rounded-full overflow-hidden bg-white shadow-2xs focus-within:border-[#168821] focus-within:ring-2 focus-within:ring-[#168821]/20 transition">
+                    <div className="w-10 h-9 bg-[#168821] flex items-center justify-center shrink-0 border-r border-slate-700">
+                      <AccountTypeIcon className="w-4.5 h-4.5 text-white" />
+                    </div>
+                    <select
+                      aria-label="What best describes you?"
+                      value={accountType}
+                      onChange={(e) => { setAccountType(e.target.value); setError(""); }}
+                      className="w-full px-3 py-1.5 sm:py-2 text-slate-800 text-xs sm:text-sm focus:outline-none bg-transparent font-medium cursor-pointer"
+                    >
+                      {ACCOUNT_TYPES.map(({ key, label, hint }) => (
+                        <option key={key} value={key}>{label} ({hint})</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* District + Chiefdom (farmers & traders) */}
+                  {isMarketSignup && (
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="flex items-center border border-slate-700 rounded-full overflow-hidden bg-white shadow-2xs focus-within:border-[#168821] transition">
+                        <div className="w-9 h-9 bg-[#168821] flex items-center justify-center shrink-0 border-r border-slate-700">
+                          <MapPin className="w-4 h-4 text-white" />
+                        </div>
+                        <select required value={district} onChange={(e) => setDistrict(e.target.value)}
+                          className="w-full px-2 py-1.5 sm:py-2 text-slate-800 text-xs sm:text-sm focus:outline-none bg-transparent font-medium">
+                          <option value="" disabled>District</option>
+                          {DISTRICTS.map((d) => <option key={d} value={d}>{d}</option>)}
+                        </select>
+                      </div>
+                      <div className="flex items-center border border-slate-700 rounded-full overflow-hidden bg-white shadow-2xs focus-within:border-[#168821] transition">
+                        <input type="text" placeholder="Chiefdom" value={chiefdom} onChange={(e) => setChiefdom(e.target.value)}
+                          className="w-full px-3.5 py-1.5 sm:py-2 text-slate-800 placeholder-slate-400 text-xs sm:text-sm focus:outline-none bg-transparent font-medium" />
+                      </div>
+                    </div>
+                  )}
 
                   {/* Password */}
                   <div className="flex items-center border border-slate-700 rounded-full overflow-hidden bg-white shadow-2xs focus-within:border-[#168821] focus-within:ring-2 focus-within:ring-[#168821]/20 transition">
@@ -710,9 +852,10 @@ export default function Login({ initialMode = "signin" }) {
                   disabled={loading}
                   className="mt-3 w-full bg-[#168821] hover:bg-[#137a1c] active:scale-[0.98] text-white font-bold py-2.5 sm:py-3 rounded-full text-xs sm:text-sm shadow-md transition-all disabled:opacity-50 cursor-pointer"
                 >
-                  {loading ? "Registering..." : "Register"}
+                  {loading ? "Registering..." : isMarketSignup ? "Create account" : "Register"}
                 </button>
 
+                {!isMarketSignup && (<>
                 {/* OR Separator */}
                 <div className="w-full text-center my-1.5">
                   <span className="text-xs font-semibold text-slate-600 tracking-wider">OR</span>
@@ -755,6 +898,7 @@ export default function Login({ initialMode = "signin" }) {
                     </>
                   )}
                 </button>
+                </>)}
                 {/* Switch link */}
                 <div className="mt-2.5 text-center text-xs text-slate-800 font-medium">
                   <p>
@@ -868,7 +1012,7 @@ export default function Login({ initialMode = "signin" }) {
             {forgotStep === 1 ? (
               <form onSubmit={handleSendForgotEmail} className="space-y-3 text-xs">
                 <p className="text-slate-600 leading-relaxed">
-                  Enter the email address registered with your Produce Manager or Secretary account. We will send a secure 6-digit reset code and link.
+                  Enter the email or phone number on your account. We will send a 6-digit reset code by email, or by SMS for phone accounts.
                 </p>
 
                 <div className="flex items-center border border-slate-700 rounded-full overflow-hidden bg-white shadow-2xs h-11 px-1.5">
@@ -877,9 +1021,10 @@ export default function Login({ initialMode = "signin" }) {
                   </div>
                   <div className="h-6 w-px bg-slate-300 mx-2.5" />
                   <input
-                    type="email"
+                    type="text"
+                    inputMode="email"
                     required
-                    placeholder="Enter your registered email"
+                    placeholder="Email or phone number"
                     value={forgotEmail}
                     onChange={(e) => setForgotEmail(e.target.value)}
                     className="w-full text-xs sm:text-sm text-slate-900 placeholder-slate-400 bg-transparent focus:outline-none pr-3 font-medium"
@@ -906,7 +1051,7 @@ export default function Login({ initialMode = "signin" }) {
             ) : (
               <form onSubmit={handleResetPassword} className="space-y-3 text-xs">
                 <p className="text-slate-600 leading-relaxed">
-                  Enter the 6-digit verification code sent to <strong>{forgotEmail || "your email"}</strong>, and set your new password.
+                  Enter the 6-digit verification code sent to <strong>{forgotEmail || "your email or phone"}</strong>, and set your new password.
                 </p>
 
                 {/* 6-Digit Code */}

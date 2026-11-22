@@ -22,7 +22,8 @@ def send_password_reset_email(to_email: str, user_name: str, reset_token: str, r
     Sends a formatted password reset email to a Produce Manager or Secretary.
     Includes both a 6-digit instant reset code and a direct web reset link.
     """
-    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+    from app.core.config import settings
+    frontend_url = settings.FRONTEND_URL.rstrip("/")
     reset_link = f"{frontend_url}/login?reset_token={reset_token}"
     
     subject = "COMIS — Password Reset Instructions"
@@ -103,19 +104,18 @@ COMIS World Produce Administration
         "subject": subject,
         "plain_text": plain_text,
     }
-    from app.core.config import settings
     app_env = settings.APP_ENV
     if app_env in ("testing", "development"):
         # Inspection buffer for tests / local dev only — never keep reset codes in a production process
         SENT_EMAILS_BUFFER.append(email_record)
 
     # Attempt live SMTP if configured
-    smtp_host = os.getenv("SMTP_HOST")
-    smtp_port = int(os.getenv("SMTP_PORT", "587"))
-    smtp_user = os.getenv("SMTP_USER")
-    smtp_pass = os.getenv("SMTP_PASSWORD")
+    smtp_host = settings.SMTP_HOST
+    smtp_port = settings.SMTP_PORT
+    smtp_user = settings.SMTP_USER
+    smtp_pass = settings.SMTP_PASSWORD
 
-    if smtp_host and smtp_user and smtp_pass:
+    if smtp_host and smtp_user and smtp_pass and app_env != "testing":
         try:
             msg = MIMEMultipart("alternative")
             msg["Subject"] = subject
@@ -127,15 +127,22 @@ COMIS World Produce Administration
             msg.attach(part1)
             msg.attach(part2)
 
-            with smtplib.SMTP(smtp_host, smtp_port, timeout=10) as server:
-                server.starttls()
+            # Port 465 = implicit TLS; 587 (default) = STARTTLS
+            if smtp_port == 465:
+                server_cm = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=15)
+            else:
+                server_cm = smtplib.SMTP(smtp_host, smtp_port, timeout=15)
+            with server_cm as server:
+                if smtp_port != 465:
+                    server.starttls()
                 server.login(smtp_user, smtp_pass)
-                server.sendmail(SENDER_EMAIL, [to_email], msg.as_string())
+                server.sendmail(smtp_user or SENDER_EMAIL, [to_email], msg.as_string())
             print(f"[EMAIL SERVICE] Successfully sent reset email to {to_email}")
             return True
         except Exception as e:
-            print(f"[EMAIL SERVICE] SMTP dispatch error ({e}); saved to buffer.")
-            return True
+            # Say so loudly: a silent failure looks like "reset is broken" to users
+            print(f"[EMAIL SERVICE] SMTP send FAILED for {to_email}: {e!r}")
+            return False
     else:
         # Development / Offline mode: successfully logged & buffered
         if app_env == "development":
