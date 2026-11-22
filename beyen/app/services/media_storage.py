@@ -10,11 +10,14 @@ and compressed); otherwise they are written to MEDIA_ROOT. Paths stored in the
 database are either a local relative path or a full Cloudinary URL, and url()/
 delete() handle both, so switching storage never breaks existing files.
 """
+import logging
 import os
 import uuid
 from dataclasses import dataclass
 from fastapi import UploadFile
 from app.core.config import settings
+
+logger = logging.getLogger("comis.media")
 
 MAX_PHOTO_BYTES = 5 * 1024 * 1024
 MAX_VIDEO_BYTES = 30 * 1024 * 1024
@@ -116,9 +119,9 @@ _CLD_HOST = "res.cloudinary.com"
 
 
 class CloudinaryStorage:
-    def __init__(self, cloudinary_url: str, local: LocalStorage):
+    def __init__(self, cloud_name: str, api_key: str, api_secret: str, local: LocalStorage):
         import cloudinary
-        cloudinary.config(cloudinary_url=cloudinary_url, secure=True)
+        cloudinary.config(cloud_name=cloud_name, api_key=api_key, api_secret=api_secret, secure=True)
         self.local = local
 
     async def save(self, upload: UploadFile, folder: str, allow_video: bool = True) -> StoredMedia:
@@ -133,7 +136,8 @@ class CloudinaryStorage:
                 overwrite=False,
             )
         except Exception as e:
-            raise MediaRejected(f"Upload to media storage failed, please try again. ({type(e).__name__})")
+            logger.exception("Cloudinary upload failed")
+            raise MediaRejected(f"Upload to media storage failed, please try again. ({type(e).__name__}: {e})")
         return StoredMedia(kind=kind, path=result["secure_url"], content_type=content_type, size=len(data))
 
     def delete(self, path: str) -> None:
@@ -195,10 +199,27 @@ class _HybridUrls:
         return _with_delivery(path) if path.startswith("http") else self.local.url(path)
 
 
+def parse_cloudinary_config(value: str) -> tuple[str, str, str] | None:
+    """cloudinary://<api_key>:<api_secret>@<cloud_name> -> (cloud_name, api_key, api_secret)."""
+    from urllib.parse import urlparse, unquote
+    value = (value or "").strip().strip('"').strip("'")
+    if value.upper().startswith("CLOUDINARY_URL="):        # pasted the whole dashboard line
+        value = value.split("=", 1)[1].strip()
+    p = urlparse(value)
+    if p.scheme != "cloudinary" or not (p.hostname and p.username and p.password):
+        return None
+    return p.hostname, unquote(p.username), unquote(p.password)
+
+
 def _build_storage():
     local = LocalStorage(settings.MEDIA_ROOT)
     if settings.CLOUDINARY_URL:
-        return CloudinaryStorage(settings.CLOUDINARY_URL, local)
+        parsed = parse_cloudinary_config(settings.CLOUDINARY_URL)
+        if parsed:
+            logger.info("Media storage: Cloudinary (cloud %s)", parsed[0])
+            return CloudinaryStorage(*parsed, local)
+        logger.error("CLOUDINARY_URL is not in the form cloudinary://<api_key>:<api_secret>@<cloud_name>; "
+                     "saving uploads on local disk instead.")
     return _HybridUrls(local)
 
 

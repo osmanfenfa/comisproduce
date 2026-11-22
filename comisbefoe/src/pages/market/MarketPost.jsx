@@ -115,6 +115,7 @@ export default function MarketPost() {
       const { data } = id ? await client.put(`/market/listings/${id}`, body) : await client.post("/market/listings", body);
       const uploads = [...photos.map((f) => ["photo", f]), ...(video ? [["video", video]] : [])];
       let failed = 0;
+      let reason = "";
       for (let i = 0; i < uploads.length; i++) {
         const [kindOf, file] = uploads[i];
         setProgress(`Uploading ${kindOf} ${i + 1} of ${uploads.length}...`);
@@ -126,13 +127,18 @@ export default function MarketPost() {
             headers: { "Content-Type": "multipart/form-data" },
             timeout: 5 * 60 * 1000,
           });
-        } catch {
+        } catch (err) {
           failed++;
+          reason = err.response?.data?.detail || reason;
         }
       }
       setProgress("");
       if (failed) {
-        window.alert(`${failed} file(s) could not be uploaded. Open the listing and use Edit to try again.`);
+        window.alert(`${failed} file(s) could not be uploaded.${reason ? `
+
+${reason}` : ""}
+
+Open the listing and use Edit to try again.`);
       }
       navigate(`/market/listing/${data.id}`, { replace: true });
     } catch (err) {
