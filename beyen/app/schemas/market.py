@@ -146,6 +146,16 @@ class ListingOut(BaseModel):
     comment_count: int = 0
     liked_by_me: bool = False
     saved_by_me: bool = False
+    match_reason: str | None = None        # "For you" feed: why this post was placed near the top
+
+
+class AlertOut(BaseModel):
+    """A new post that matches what the member needs or sells."""
+    id: uuid.UUID
+    created_at: datetime
+    seen: bool
+    reason: str
+    listing: ListingOut
 
 
 class OfferIn(BaseModel):

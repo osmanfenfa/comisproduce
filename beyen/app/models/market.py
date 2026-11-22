@@ -150,3 +150,34 @@ class CommentLike(Base):
     comment_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("market_comments.id", ondelete="CASCADE"), index=True)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class MarketInterest(Base):
+    """
+    What a member buys ("needs") or sells, per category, learned from what they do.
+    `score` is the value at `updated_at`; it halves every 30 days (see services/interests.py).
+    """
+    __tablename__ = "market_interests"
+    __table_args__ = (UniqueConstraint("user_id", "category", "side", name="uq_market_interests_user_cat_side"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    category: Mapped[str] = mapped_column(String(40), index=True)
+    side: Mapped[str] = mapped_column(String(10))          # needs | sells
+    score: Mapped[float] = mapped_column(Float, default=0.0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class MarketAlert(Base):
+    """'A post you may want': created when a new listing matches what a member needs or sells."""
+    __tablename__ = "market_alerts"
+    __table_args__ = (UniqueConstraint("user_id", "listing_id", name="uq_market_alerts_user_listing"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    listing_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("market_listings.id", ondelete="CASCADE"), index=True)
+    side: Mapped[str] = mapped_column(String(10))          # why: the member needs | sells this category
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    seen_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    listing = relationship("Listing")

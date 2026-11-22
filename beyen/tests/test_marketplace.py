@@ -371,12 +371,12 @@ def test_activity_notification_counts(client):
     assert count(farmer)["total"] == 0
     o1 = client.post(f"/api/v1/market/listings/{lid}/offers", headers=trader, json={"quantity": 1}).json()
     client.post(f"/api/v1/market/listings/{lid}/offers", headers=other, json={"quantity": 2})
-    assert count(farmer) == {"offers_received": 2, "offer_updates": 0, "total": 2}
+    assert count(farmer) == {"offers_received": 2, "offer_updates": 0, "matches": 0, "total": 2}
 
     # Declining one: the owner's count drops, the sender gets an update
     client.post(f"/api/v1/market/offers/{o1['id']}/decline", headers=farmer)
     assert count(farmer)["offers_received"] == 1
-    assert count(trader) == {"offers_received": 0, "offer_updates": 1, "total": 1}
+    assert count(trader) == {"offers_received": 0, "offer_updates": 1, "matches": 0, "total": 1}
 
     # Opening "Offers sent" clears it
     client.post("/api/v1/market/notifications/seen-updates", headers=trader)
@@ -403,3 +403,105 @@ def test_profile_photo_for_any_role(client):
 
     assert client.delete("/api/v1/profile/photo", headers=farmer).json() == {"avatar_url": None}
     assert client.get("/api/v1/profile/photo").status_code == 401
+
+
+def test_for_you_feed_matches_buyers_and_sellers(client):
+    buyer, _, _ = _signup(client, "trader", name="Cassava Buyer")
+    seller, _, _ = _signup(client, "farmer", name="Cassava Grower")
+    newcomer, _, _ = _signup(client, "trader", name="New Person")
+
+    # The buyer says they need cassava by posting a wanted listing
+    wanted = _listing(client, buyer, kind="wanted", category="cassava", title="Need cassava, 20 bags")
+    # The seller posts cassava for sale, then (newer) rice
+    cassava = _listing(client, seller, category="cassava", title="Fresh cassava for sale")
+    rice = _listing(client, seller, category="rice", title="Rice for sale")
+
+    feed = client.get("/api/v1/market/listings", params={"sort": "for_you"}, headers=buyer).json()
+    ids = [l["id"] for l in feed]
+    assert cassava["id"] in ids
+    assert rice["id"] not in ids[:ids.index(cassava["id"])]          # the need beats the newer post
+    match = next(l for l in feed if l["id"] == cassava["id"])
+    assert match["match_reason"] == "Because you need Cassava & gari"
+
+    # The wanted post goes to people who sell cassava
+    feed = client.get("/api/v1/market/listings", params={"sort": "for_you"}, headers=seller).json()
+    post = next(l for l in feed if l["id"] == wanted["id"])
+    assert post["match_reason"] == "Because you sell Cassava & gari"
+
+    # Latest order is unchanged and has no reasons; a newcomer gets an unpersonalised feed
+    latest = client.get("/api/v1/market/listings", headers=buyer).json()
+    assert latest[0]["id"] == rice["id"] and all(l["match_reason"] is None for l in latest)
+    fresh = client.get("/api/v1/market/listings", params={"sort": "for_you"}, headers=newcomer).json()
+    assert fresh and all(l["match_reason"] is None for l in fresh)
+
+    # Saving a sell post teaches "needs": the newcomer now gets cassava sell posts first
+    assert client.put(f"/api/v1/market/listings/{cassava['id']}/save", headers=newcomer).status_code == 200
+    client.post(f"/api/v1/market/listings/{cassava['id']}/offers", headers=newcomer, json={"quantity": 2})
+    feed = client.get("/api/v1/market/listings", params={"sort": "for_you"}, headers=newcomer).json()
+    assert feed[0]["category"] == "cassava" and feed[0]["match_reason"] == "Because you need Cassava & gari"
+
+
+def test_interest_scores_fade_over_time():
+    from datetime import datetime, timedelta
+    from app.services.interests import decayed
+    now = datetime.utcnow()
+    assert decayed(10, now, now) == 10
+    assert abs(decayed(10, now - timedelta(days=30), now) - 5) < 1e-6
+
+
+def test_new_post_alerts_people_who_need_it(client):
+    buyer, _, _ = _signup(client, "trader", name="Goat Buyer")
+    seller, _, _ = _signup(client, "farmer", name="Goat Keeper")
+    browser, _, _ = _signup(client, "trader", name="Only Liked")
+
+    # The buyer needs goats (wanted post); the browser only liked a goat post once (too weak to alert)
+    _listing(client, buyer, kind="wanted", category="livestock", title="Need 3 goats")
+    old = _listing(client, seller, category="livestock", title="Old goats")
+    client.put(f"/api/v1/market/listings/{old['id']}/like", headers=browser)
+
+    post = _listing(client, seller, category="livestock", title="Healthy goats for sale")
+
+    n = client.get("/api/v1/market/notifications", headers=buyer).json()
+    assert n["matches"] >= 1 and n["total"] >= n["matches"]
+    alerts = client.get("/api/v1/market/alerts", headers=buyer).json()
+    assert alerts[0]["listing"]["id"] == post["id"] and alerts[0]["seen"] is False
+    assert alerts[0]["reason"].startswith("You need")
+    assert client.get("/api/v1/market/notifications", headers=browser).json()["matches"] == 0
+    assert client.get("/api/v1/market/notifications", headers=seller).json()["matches"] == 0   # not for own post
+
+    # Opening the alerts clears the badge
+    assert client.post("/api/v1/market/alerts/seen", headers=buyer).status_code == 200
+    assert client.get("/api/v1/market/notifications", headers=buyer).json()["matches"] == 0
+
+    # A wanted post alerts the people who sell that category
+    _listing(client, buyer, kind="wanted", category="livestock", title="Need sheep too")
+    reasons = [a["reason"] for a in client.get("/api/v1/market/alerts", headers=seller).json()]
+    assert reasons and reasons[0].startswith("You sell")
+
+    # At most 3 alerts a day per member
+    for i in range(4):
+        _listing(client, seller, category="livestock", title=f"More goats {i}")
+    from datetime import datetime, timedelta
+    recent = [a for a in client.get("/api/v1/market/alerts", headers=buyer).json()
+              if datetime.fromisoformat(a["created_at"]) > datetime.utcnow() - timedelta(hours=1)]
+    assert len(recent) == 3
+
+
+def test_alert_sms_only_when_enabled_and_verified(client, monkeypatch):
+    from app.core.config import settings
+    buyer, phone, _ = _signup(client, "trader", name="Fish Buyer")
+    seller, _, _ = _signup(client, "farmer", name="Fisher")
+    client.post("/api/v1/market/me/verify-phone/send", headers=buyer)
+    code = SENT_SMS_BUFFER[-1]["message"].split("code is ")[1][:6]
+    assert client.post("/api/v1/market/me/verify-phone/confirm", headers=buyer, json={"code": code}).status_code == 200
+    _listing(client, buyer, kind="wanted", category="fish", title="Need dried fish")
+
+    before = len(SENT_SMS_BUFFER)
+    _listing(client, seller, category="fish", title="Dried fish")             # SMS off by default
+    assert len(SENT_SMS_BUFFER) == before
+
+    monkeypatch.setattr(settings, "MARKET_ALERT_SMS", True)
+    _listing(client, seller, category="fish", title="Fresh fish", quantity=40, unit="kg")
+    _listing(client, seller, category="fish", title="More fish")              # max one SMS a day
+    texts = [m for m in SENT_SMS_BUFFER[before:] if "COMIS Market: Fish" in m["message"]]
+    assert len(texts) == 1 and "for sale in Kenema - 40 kg" in texts[0]["message"]

@@ -9,7 +9,9 @@ import CountBadge from "../../components/shared/CountBadge.jsx";
 import { useNotificationStore } from "../../store/notificationStore.js";
 
 const ROLE_LABEL = { farmer: "Farmer", trader: "Trader", produce_manager: "Buying station", produce_secretary: "Buying station", system_admin: "Admin" };
-const TABS = [["all", "All"], ["sell", "For sale"], ["wanted", "Wanted"], ["saved", "Saved"]];
+// "For you" ranks posts by what you buy and sell (learned from your posts, offers, saves...)
+const TABS = [["for_you", "For you"], ["all", "Latest"], ["sell", "For sale"], ["wanted", "Wanted"], ["saved", "Saved"]];
+const MEMBER_ONLY_TABS = ["for_you", "saved"];
 
 export default function MarketHome() {
   const { role, name, produceName, avatarUrl } = useAuthStore();
@@ -18,7 +20,7 @@ export default function MarketHome() {
   const me = { name: role === "produce_manager" || role === "produce_secretary" ? produceName : name, role, avatar_url: avatarUrl };
 
   const [meta, setMeta] = useState(null);
-  const [tab, setTab] = useState("all");
+  const [tab, setTab] = useState(canPost ? "for_you" : "all");
   const [category, setCategory] = useState("");
   const [district, setDistrict] = useState("");
   const [q, setQ] = useState("");
@@ -38,6 +40,8 @@ export default function MarketHome() {
     let cancelled = false;
     const params = { page };
     if (tab === "sell" || tab === "wanted") params.kind = tab;
+    // For you, For sale and Wanted are personalised; Latest is plain newest-first
+    if (canPost && ["for_you", "sell", "wanted"].includes(tab)) params.sort = "for_you";
     if (tab === "saved") params.saved = true;
     if (category) params.category = category;
     if (district) params.district = district;
@@ -55,7 +59,7 @@ export default function MarketHome() {
     return () => {
       cancelled = true;
     };
-  }, [tab, category, district, query, page]);
+  }, [tab, category, district, query, page, canPost]);
 
   // Any filter change restarts the feed from the top
   const restart = (fn) => (value) => {
@@ -111,7 +115,7 @@ export default function MarketHome() {
         {/* Tabs + search */}
         <div className="border-2 border-[#168821] rounded-2xl overflow-hidden bg-white shadow-xs p-2.5 space-y-2">
           <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
-            {TABS.filter(([k]) => canPost || k !== "saved").map(([k, label]) => (
+            {TABS.filter(([k]) => canPost || !MEMBER_ONLY_TABS.includes(k)).map(([k, label]) => (
               <button key={k} onClick={() => restart(setTab)(k)}
                 className={`shrink-0 px-3 py-1 rounded-full text-[11px] font-bold border transition cursor-pointer ${
                   tab === k ? "bg-[#168821] border-[#168821] text-white" : "border-slate-300 text-slate-600 hover:bg-slate-50"

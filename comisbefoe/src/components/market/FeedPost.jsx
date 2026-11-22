@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
-  ThumbsUp, MessageCircle, Share2, Bookmark, BadgeCheck, MapPin, Send, Trash2, MoreHorizontal, CheckCircle2,
+  ThumbsUp, MessageCircle, Share2, Bookmark, BadgeCheck, MapPin, Send, Trash2, MoreHorizontal, CheckCircle2, Sparkles,
 } from "lucide-react";
 import client from "../../api/client.js";
 import UserAvatar from "../shared/UserAvatar.jsx";
@@ -360,6 +360,12 @@ export default function FeedPost({ post: initial }) {
           <span className="font-bold normal-case tracking-normal">{timeAgo(post.created_at)}</span>
         </span>
       </div>
+
+      {post.match_reason && (
+        <p className="px-4 pt-2 text-[10px] font-bold text-[#168821] flex items-center gap-1">
+          <Sparkles className="w-3 h-3" /> {post.match_reason}
+        </p>
+      )}
 
       {/* Author */}
       <header className="px-4 pt-2.5 flex items-start gap-2.5">

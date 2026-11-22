@@ -16,7 +16,7 @@ import os
 import secrets
 import uuid
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, UploadFile, File, Query
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, selectinload
 from app.db.session import get_db
@@ -27,13 +27,13 @@ from app.core.rate_limit import limiter, client_ip, too_many_requests
 from app.models.user import User, UserRole, UserStatus
 from app.models.market import (
     Listing, ListingMedia, ListingKind, ListingStatus, Offer, OfferStatus, ListingReport,
-    ListingLike, ListingSave, ListingComment, CommentLike,
+    ListingLike, ListingSave, ListingComment, CommentLike, MarketAlert,
 )
 from app.schemas.user import Token
 from app.schemas.market import (
     CATEGORIES, UNITS, MarketSignup, PhoneCodeConfirm, MarketProfileOut, MarketProfileUpdate,
     ListingIn, ListingOut, ListingStatusUpdate, MediaOut, OwnerOut, OfferIn, OfferOut, ReportIn, ReportOut,
-    CommentIn, CommentOut, ReactionOut,
+    CommentIn, CommentOut, ReactionOut, AlertOut,
     IdExtractOut, IdConfirmIn, VerificationOut, VerificationReject,
 )
 from fastapi import Form
@@ -44,6 +44,8 @@ from app.services.audit import log_action
 from app.services.phone import normalize_phone, phone_key, looks_like_phone, InvalidPhone
 from app.services.sms import send_sms, sms_available, SmsUnavailable
 from app.services.media_storage import storage, MediaRejected
+from app.services import interests
+from app.core.config import settings
 
 router = APIRouter()
 
@@ -442,6 +444,7 @@ def browse_listings(
     district: str | None = None,
     q: str | None = Query(default=None, max_length=80),
     saved: bool = False,
+    sort: str = Query(default="latest", pattern="^(latest|for_you)$"),
     page: int = Query(default=1, ge=1, le=500),
     db: Session = Depends(get_db),
     current=Depends(MARKET_VIEWERS),
@@ -462,12 +465,32 @@ def browse_listings(
     if q:
         like = f"%{q.strip()}%"
         query = query.filter(or_(Listing.title.ilike(like), Listing.description.ilike(like)))
-    listings = (query.order_by(Listing.created_at.desc())
-                .offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE).all())
+    reasons: dict[uuid.UUID, str] = {}
+    start = (page - 1) * PAGE_SIZE
+    query = query.order_by(Listing.created_at.desc())
+    if sort == "for_you" and not saved:
+        # Rank the newest posts for this viewer; anything older follows by date
+        pool = query.limit(interests.CANDIDATE_POOL).all()
+        viewer = db.query(User).filter(User.id == current["id"]).first()
+        ranked = interests.rank(db, pool, current["id"], viewer.district if viewer else None, _is_verified)
+        page_items = ranked[start:start + PAGE_SIZE]
+        listings = [l for l, _ in page_items]
+        reasons = {l.id: r for l, r in page_items if r}
+        if len(listings) < PAGE_SIZE and len(pool) == interests.CANDIDATE_POOL:
+            older_from = len(pool) + max(0, start - len(pool))
+            listings += query.offset(older_from).limit(PAGE_SIZE - len(listings)).all()
+    else:
+        listings = query.offset(start).limit(PAGE_SIZE).all()
 
     mine = {o.listing_id: o.status for o in db.query(Offer).filter(
         Offer.from_user_id == current["id"], Offer.listing_id.in_([l.id for l in listings] or [uuid.uuid4()]))}
-    return _with_social(db, [_listing_out(l, current, mine.get(l.id)) for l in listings], current)
+    outs = [_listing_out(l, current, mine.get(l.id)) for l in listings]
+    for o in outs:
+        side = reasons.get(o.id)
+        if side:
+            o.match_reason = (f"Because you need {o.category_label}" if side == interests.NEEDS
+                              else f"Because you sell {o.category_label}")
+    return _with_social(db, outs, current)
 
 
 @router.get("/my-listings", response_model=list[ListingOut])
@@ -491,11 +514,15 @@ def get_listing(listing_id: uuid.UUID, db: Session = Depends(get_db), current=De
                 .order_by(Offer.created_at.desc()).first())
     pending = db.query(func.count(Offer.id)).filter(
         Offer.listing_id == listing.id, Offer.status == OfferStatus.pending).scalar()
+    if current["role"] != UserRole.system_admin.value and listing.owner_id != current["id"] \
+            and not limiter.check_and_hit(f"market-view:{current['id']}:{listing.id}", 1, 24 * 60 * 60):
+        interests.record_for_listing(db, current["id"], listing, "view")
     return _with_social(db, [_listing_out(listing, current, my_offer[0] if my_offer else None, pending)], current)[0]
 
 
 @router.post("/listings", response_model=ListingOut, status_code=201)
-def create_listing(payload: ListingIn, db: Session = Depends(get_db), current=Depends(MARKET_TRADERS)):
+def create_listing(payload: ListingIn, background: BackgroundTasks, db: Session = Depends(get_db),
+                   current=Depends(MARKET_TRADERS)):
     _user(db, current)
     if limiter.check_and_hit(f"market-post:{current['id']}", 20, 60 * 60):
         raise too_many_requests(60 * 60)
@@ -506,7 +533,31 @@ def create_listing(payload: ListingIn, db: Session = Depends(get_db), current=De
     listing = Listing(**data, owner_id=current["id"], status=ListingStatus.active)
     db.add(listing)
     db.commit()
+    interests.bump(db, current["id"], listing.category, interests.side_of_post(listing.kind), interests.POINTS["post"])
+    _alert_matches(db, listing, background)
     return _listing_out(_load_listing(db, listing.id), current, pending=0)
+
+
+def _alert_matches(db: Session, listing: Listing, background: BackgroundTasks) -> None:
+    """Tell the members who need (or sell) this category; optionally by SMS, at most one a day each."""
+    alerted = interests.match_alerts(db, listing)
+    if not alerted or not settings.MARKET_ALERT_SMS or not sms_available():
+        return
+    text = interests.alert_sms_text(listing, CATEGORIES.get(listing.category, listing.category))
+    for u in alerted:
+        phone = _phone_of(u)
+        if not phone or not u.phone_verified_at:
+            continue
+        if limiter.check_and_hit(f"market-alert-sms:{u.id}", 1, 24 * 60 * 60):
+            continue
+        background.add_task(_send_alert_sms, phone, text)
+
+
+def _send_alert_sms(phone: str, text: str) -> None:
+    try:
+        send_sms(phone, text)
+    except Exception:
+        pass       # the in-app alert is already there
 
 
 @router.put("/listings/{listing_id}", response_model=ListingOut)
@@ -607,6 +658,8 @@ def _toggle(db: Session, model, listing_id: uuid.UUID, current: dict, on: bool) 
         db.commit()
     except Exception:     # a double tap raced the unique constraint: the reaction already exists
         db.rollback()
+    if on and not row:
+        interests.record_for_listing(db, current["id"], listing, "save" if model is ListingSave else "like")
     count = db.query(func.count(model.id)).filter(model.listing_id == listing.id).scalar()
     return ReactionOut(active=on, count=count)
 
@@ -677,6 +730,7 @@ def add_comment(listing_id: uuid.UUID, payload: CommentIn, db: Session = Depends
     db.add(comment)
     db.commit()
     db.refresh(comment)
+    interests.record_for_listing(db, current["id"], listing, "comment")
     return _comment_out(comment, listing, current)
 
 
@@ -760,6 +814,7 @@ def make_offer(listing_id: uuid.UUID, payload: OfferIn, db: Session = Depends(ge
                   status=OfferStatus.pending)
     db.add(offer)
     db.commit()
+    interests.record_for_listing(db, current["id"], listing, "offer")
     return _offer_out(_load_offer(db, offer.id), current)
 
 
@@ -773,7 +828,34 @@ def market_notifications(db: Session = Depends(get_db), current=Depends(MARKET_T
         Offer.status.in_([OfferStatus.accepted, OfferStatus.declined]),
         Offer.response_seen_at.is_(None),
     ).scalar()
-    return {"offers_received": received, "offer_updates": updates, "total": received + updates}
+    matches = (db.query(func.count(MarketAlert.id)).join(Listing, Listing.id == MarketAlert.listing_id)
+               .filter(MarketAlert.user_id == current["id"], MarketAlert.seen_at.is_(None),
+                       Listing.status == ListingStatus.active).scalar())
+    return {"offers_received": received, "offer_updates": updates, "matches": matches,
+            "total": received + updates + matches}
+
+
+@router.get("/alerts", response_model=list[AlertOut])
+def my_alerts(db: Session = Depends(get_db), current=Depends(MARKET_TRADERS)):
+    """New posts that match what I need or sell (newest first, still open)."""
+    alerts = (db.query(MarketAlert).join(Listing, Listing.id == MarketAlert.listing_id)
+              .options(selectinload(MarketAlert.listing).selectinload(Listing.media),
+                       selectinload(MarketAlert.listing).selectinload(Listing.owner))
+              .filter(MarketAlert.user_id == current["id"], Listing.status == ListingStatus.active)
+              .order_by(MarketAlert.created_at.desc()).limit(50).all())
+    outs = _with_social(db, [_listing_out(a.listing, current) for a in alerts], current)
+    return [AlertOut(id=a.id, created_at=a.created_at, seen=a.seen_at is not None,
+                     reason=(f"You need {o.category_label}" if a.side == interests.NEEDS
+                             else f"You sell {o.category_label}"), listing=o)
+            for a, o in zip(alerts, outs)]
+
+
+@router.post("/alerts/seen")
+def mark_alerts_seen(db: Session = Depends(get_db), current=Depends(MARKET_TRADERS)):
+    db.query(MarketAlert).filter(MarketAlert.user_id == current["id"], MarketAlert.seen_at.is_(None)) \
+        .update({MarketAlert.seen_at: datetime.utcnow()}, synchronize_session=False)
+    db.commit()
+    return {"ok": True}
 
 
 @router.post("/notifications/seen-updates")
@@ -819,6 +901,11 @@ def respond_to_offer(offer_id: uuid.UUID, action: str, db: Session = Depends(get
         raise HTTPException(status_code=404, detail="Unknown action")
     offer.responded_at = datetime.utcnow()
     db.commit()
+    if offer.status == OfferStatus.accepted:
+        listing = offer.listing
+        interests.record_for_listing(db, offer.from_user_id, listing, "deal")
+        interests.bump(db, listing.owner_id, listing.category, interests.side_of_post(listing.kind),
+                       interests.POINTS["deal"] / 2)
     return _offer_out(_load_offer(db, offer.id), current)
 
 
