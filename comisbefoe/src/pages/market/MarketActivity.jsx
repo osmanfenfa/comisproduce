@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Phone, Check, X, Scale, Banknote, User } from "lucide-react";
+import { Phone, Check, X, Scale, Banknote, User, Sparkles } from "lucide-react";
 import client from "../../api/client.js";
 import { formatNle, qtyLabel, timeAgo } from "../../utils/market.js";
 import ListingCard from "../../components/market/ListingCard.jsx";
@@ -87,8 +87,9 @@ export default function MarketActivity() {
   const tab = params.get("tab") || "listings";
   const [listings, setListings] = useState(null);
   const [offers, setOffers] = useState(null);
+  const [alerts, setAlerts] = useState(null);
   const [busy, setBusy] = useState(false);
-  const { offersReceived, offerUpdates, refresh, markUpdatesSeen } = useNotificationStore();
+  const { offersReceived, offerUpdates, matches, refresh, markUpdatesSeen, markMatchesSeen } = useNotificationStore();
 
   // Opening "Offers sent" means the accept/decline answers have been seen
   useEffect(() => {
@@ -96,12 +97,18 @@ export default function MarketActivity() {
   }, [tab, markUpdatesSeen]);
 
   useEffect(() => {
-    if (tab === "listings") {
+    if (tab === "matches") {
+      // Load first (so "new" marks show), then clear the badge
+      client.get("/market/alerts")
+        .then(({ data }) => setAlerts(data))
+        .catch(() => setAlerts([]))
+        .finally(() => markMatchesSeen());
+    } else if (tab === "listings") {
       client.get("/market/my-listings").then(({ data }) => setListings(data)).catch(() => setListings([]));
     } else {
       client.get("/market/offers", { params: { box: tab } }).then(({ data }) => setOffers(data)).catch(() => setOffers([]));
     }
-  }, [tab]);
+  }, [tab, markMatchesSeen]);
 
   const act = async (offer, action) => {
     if (action === "accept" && !window.confirm("Accept this offer? You and the other person will see each other's phone numbers.")) return;
@@ -129,12 +136,31 @@ export default function MarketActivity() {
           ["listings", "My Listings"],
           ["received", <>Offers Received <CountBadge count={offersReceived} className="ml-1 inline-block align-middle" /></>],
           ["sent", <>Offers Sent <CountBadge count={offerUpdates} className="ml-1 inline-block align-middle" /></>],
+          ["matches", <>For You <CountBadge count={matches} className="ml-1 inline-block align-middle" /></>],
         ]}
         value={tab}
-        onChange={(k) => { setOffers(null); setParams({ tab: k }); }}
+        onChange={(k) => { setOffers(null); setAlerts(null); setParams({ tab: k }); }}
       />
 
-      {tab === "listings" ? (
+      {tab === "matches" ? (
+        alerts === null ? (
+          <div className="text-center py-10 text-xs text-slate-400">Loading...</div>
+        ) : alerts.length === 0 ? (
+          empty("No new matches yet. When someone posts what you buy or sell, it will show here.")
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5 sm:gap-4">
+            {alerts.map((a) => (
+              <div key={a.id} className="space-y-1">
+                <p className="text-[10px] font-bold text-[#168821] flex items-center gap-1 px-1 truncate">
+                  <Sparkles className="w-3 h-3 shrink-0" /> {a.reason} · {timeAgo(a.created_at)}
+                  {!a.seen && <span className="ml-auto shrink-0 bg-[#d4a000] text-[#0f5c18] text-[9px] font-black px-1.5 rounded-full">NEW</span>}
+                </p>
+                <ListingCard listing={a.listing} />
+              </div>
+            ))}
+          </div>
+        )
+      ) : tab === "listings" ? (
         listings === null ? (
           <div className="text-center py-10 text-xs text-slate-400">Loading...</div>
         ) : listings.length === 0 ? (

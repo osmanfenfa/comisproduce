@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     # SMS for phone verification codes. "console" prints codes (development only);
     # in production no provider means phone verification is unavailable.
     SMS_PROVIDER: str = "console"
+    # Also text members (phone-verified only, max 1 per day) when a new post matches what they need/sell
+    MARKET_ALERT_SMS: bool = False
 
     # Shared rate-limit counters (optional). Without it, limits are kept in memory per process.
     REDIS_URL: str | None = None
