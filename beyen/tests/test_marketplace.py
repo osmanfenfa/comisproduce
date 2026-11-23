@@ -505,3 +505,53 @@ def test_alert_sms_only_when_enabled_and_verified(client, monkeypatch):
     _listing(client, seller, category="fish", title="More fish")              # max one SMS a day
     texts = [m for m in SENT_SMS_BUFFER[before:] if "COMIS Market: Fish" in m["message"]]
     assert len(texts) == 1 and "for sale in Kenema - 40 kg" in texts[0]["message"]
+
+
+def test_declared_interests_at_signup_and_on_me_page(client):
+    phone = _phone()
+    r = client.post("/api/v1/market/signup", json={
+        "account_type": "trader", "name": "Pepper Buyer", "phone": phone, "password": "Password123!",
+        "district": "Bo", "terms_accepted": True, "buys": ["vegetables"], "sells": ["rice"],
+    })
+    assert r.status_code == 201, r.text
+    buyer = {"Authorization": f"Bearer {r.json()['access_token']}"}
+    mine = client.get("/api/v1/market/me/interests", headers=buyer).json()
+    assert mine["buys"] == ["vegetables"] and mine["sells"] == ["rice"]
+
+    # Unknown categories are refused (and no account is created)
+    bad = client.post("/api/v1/market/signup", json={
+        "account_type": "farmer", "name": "X Y", "phone": _phone(), "password": "Password123!",
+        "district": "Bo", "terms_accepted": True, "buys": ["spaceships"]})
+    assert bad.status_code == 400
+
+    # A ticked category alone is enough for the feed and alerts
+    seller, _, _ = _signup(client, "farmer", name="Veg Grower")
+    veg = _listing(client, seller, category="vegetables", title="Fresh pepper")
+    feed = client.get("/api/v1/market/listings", params={"sort": "for_you"}, headers=buyer).json()
+    assert next(l for l in feed if l["id"] == veg["id"])["match_reason"].startswith("Because you need")
+    assert any(a["listing"]["id"] == veg["id"] for a in client.get("/api/v1/market/alerts", headers=buyer).json())
+
+    # Changing the picks on the Me page; learned interests are listed separately
+    out = client.put("/api/v1/market/me/interests", headers=buyer, json={"buys": ["fish"], "sells": []}).json()
+    assert out["buys"] == ["fish"] and out["sells"] == []
+    assert any(i["category"] == "vegetables" for i in out["learned"]) is False   # only ticked, never acted on
+    client.put(f"/api/v1/market/listings/{veg['id']}/save", headers=buyer)
+    learned = client.get("/api/v1/market/me/interests", headers=buyer).json()["learned"]
+    assert any(i["category"] == "vegetables" and i["side"] == "needs" for i in learned)
+
+
+def test_feed_stats_for_admin(client):
+    buyer, _, _ = _signup(client, "trader", name="Stats Buyer")
+    seller, _, _ = _signup(client, "farmer", name="Stats Seller")
+    client.put("/api/v1/market/me/interests", headers=buyer, json={"buys": ["poultry"], "sells": []})
+    post = _listing(client, seller, category="poultry", title="Eggs")
+    other = _listing(client, seller, category="fruits", title="Mangoes")
+    client.post(f"/api/v1/market/listings/{post['id']}/offers", headers=buyer, json={"quantity": 1})
+    client.post(f"/api/v1/market/listings/{other['id']}/offers", headers=buyer, json={"quantity": 1})
+
+    admin = _login(client, ADMIN_CONTACT, ADMIN_PASSWORD)
+    stats = client.get("/api/v1/market/admin/feed-stats", headers=admin).json()
+    assert stats["offers"] >= 2 and stats["offers_from_matched_members_pct"] is not None
+    assert stats["alerts_sent"] >= 1 and stats["alerts_to_offer_pct"] > 0
+    assert stats["weights"]["match"] == 5.0 and stats["members_with_declared_interests"] >= 1
+    assert client.get("/api/v1/market/admin/feed-stats", headers=buyer).status_code == 403

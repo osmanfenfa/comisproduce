@@ -46,7 +46,7 @@ POINTS = {
 HALF_LIFE_DAYS = 30.0
 FULL_MATCH = 10.0          # an interest score this high counts as a full match
 
-W_MATCH, W_NEARBY, W_FRESH, W_POPULAR, W_TRUSTED = 5.0, 2.0, 1.0, 0.5, 1.0
+DECLARED_FLOOR = 6.0       # a ticked category counts at least this much (enough for alerts)
 FRESH_HALF_LIFE_HOURS = 72.0
 PENALTY_OWN, PENALTY_SOLD = 3.0, 2.0
 EXPLORE_EVERY = 5          # every 5th place: a post outside the viewer's interests
@@ -93,10 +93,42 @@ def record_for_listing(db: Session, user_id: uuid.UUID, listing: Listing, action
     bump(db, user_id, listing.category, side_of_responder(listing.kind), POINTS[action])
 
 
+def effective(row: MarketInterest, now: datetime | None = None) -> float:
+    value = decayed(row.score, row.updated_at, now)
+    return max(value, DECLARED_FLOOR) if row.declared else value
+
+
 def interests_of(db: Session, user_id: uuid.UUID) -> dict[tuple[str, str], float]:
     now = datetime.utcnow()
-    return {(r.category, r.side): decayed(r.score, r.updated_at, now)
+    return {(r.category, r.side): effective(r, now)
             for r in db.query(MarketInterest).filter(MarketInterest.user_id == user_id)}
+
+
+def weights() -> dict[str, float]:
+    from app.core.config import settings
+    return {"match": settings.FEED_W_MATCH, "nearby": settings.FEED_W_NEARBY, "fresh": settings.FEED_W_FRESH,
+            "popular": settings.FEED_W_POPULAR, "trusted": settings.FEED_W_TRUSTED}
+
+
+def set_declared(db: Session, user_id: uuid.UUID, buys: list[str], sells: list[str]) -> None:
+    """Replace what the member says they buy / sell. Learned scores are kept."""
+    wanted = {(c, NEEDS) for c in buys} | {(c, SELLS) for c in sells}
+    rows = {(r.category, r.side): r for r in db.query(MarketInterest).filter(MarketInterest.user_id == user_id)}
+    now = datetime.utcnow()
+    for key, row in rows.items():
+        row.declared = key in wanted
+    for category, side in wanted - rows.keys():
+        db.add(MarketInterest(user_id=user_id, category=category, side=side, score=0.0,
+                              updated_at=now, declared=True))
+    db.commit()
+
+
+def matches_now(db: Session, user_id: uuid.UUID, listing: Listing) -> bool:
+    """Before recording an offer: did this person already need / sell what the post is about?"""
+    row = db.query(MarketInterest).filter(
+        MarketInterest.user_id == user_id, MarketInterest.category == listing.category,
+        MarketInterest.side == side_of_responder(listing.kind)).first()
+    return bool(row) and effective(row) >= 0.2 * FULL_MATCH
 
 
 # ---------------------------------------------------------------------------
@@ -122,6 +154,7 @@ def rank(db: Session, listings: list[Listing], viewer_id: uuid.UUID, viewer_dist
     now = datetime.utcnow()
     mine = interests_of(db, viewer_id)
     pop = _popularity(db, [l.id for l in listings])
+    w = weights()
 
     scored = []
     for l in listings:
@@ -132,8 +165,8 @@ def rank(db: Session, listings: list[Listing], viewer_id: uuid.UUID, viewer_dist
         fresh = 0.5 ** (hours / FRESH_HALF_LIFE_HOURS)
         popular = min(1.0, math.log1p(pop.get(l.id, 0.0)) / math.log1p(20))
         trusted = 1.0 if is_verified(l.owner) else 0.0
-        score = (W_MATCH * match + W_NEARBY * nearby + W_FRESH * fresh
-                 + W_POPULAR * popular + W_TRUSTED * trusted)
+        score = (w["match"] * match + w["nearby"] * nearby + w["fresh"] * fresh
+                 + w["popular"] * popular + w["trusted"] * trusted)
         if l.owner_id == viewer_id:
             score -= PENALTY_OWN
         if l.status == ListingStatus.sold:
@@ -193,8 +226,11 @@ def backfill(conn) -> int:
     rows = [{"id": uuid.uuid4(), "user_id": uuid.UUID(u), "category": c, "side": s, "score": pts, "updated_at": now}
             for (u, c, s), pts in totals.items()]
     if rows:
-        table = MarketInterest.__table__
-        conn.execute(table.insert(), rows)
+        # Only the columns that exist at migration 0012 (later migrations add more)
+        from sqlalchemy import table, column
+        t = table("market_interests", column("id"), column("user_id"), column("category"), column("side"),
+                  column("score"), column("updated_at"))
+        conn.execute(t.insert(), rows)
     return len(rows)
 
 
@@ -225,7 +261,7 @@ def match_alerts(db: Session, listing: Listing) -> list:
                         User.role.in_([UserRole.farmer, UserRole.trader,
                                        UserRole.produce_manager, UserRole.produce_secretary]))
                 .all())
-        people = [(decayed(i.score, i.updated_at, now), u) for i, u in rows]
+        people = [(effective(i, now), u) for i, u in rows]
         people = [(s, u) for s, u in people if s >= ALERT_MIN_SCORE]
         if not people:
             return []

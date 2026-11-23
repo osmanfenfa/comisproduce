@@ -24,6 +24,8 @@ class MarketSignup(BaseModel):
     chiefdom: str | None = Field(default=None, max_length=120)
     business_name: str | None = Field(default=None, max_length=150)   # traders
     terms_accepted: bool
+    buys: list[str] = Field(default_factory=list, max_length=30)    # "What do you buy?" (category keys)
+    sells: list[str] = Field(default_factory=list, max_length=30)   # "What do you sell?"
 
 
 class PhoneCodeConfirm(BaseModel):
@@ -147,6 +149,24 @@ class ListingOut(BaseModel):
     liked_by_me: bool = False
     saved_by_me: bool = False
     match_reason: str | None = None        # "For you" feed: why this post was placed near the top
+
+
+class InterestsIn(BaseModel):
+    buys: list[str] = Field(default_factory=list, max_length=30)
+    sells: list[str] = Field(default_factory=list, max_length=30)
+
+
+class LearnedInterest(BaseModel):
+    category: str
+    label: str
+    side: str          # needs | sells
+    strength: int      # 0..100, how strongly the feed uses it
+
+
+class InterestsOut(BaseModel):
+    buys: list[str]
+    sells: list[str]
+    learned: list[LearnedInterest]
 
 
 class AlertOut(BaseModel):

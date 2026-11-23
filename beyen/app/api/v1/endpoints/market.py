@@ -33,7 +33,7 @@ from app.schemas.user import Token
 from app.schemas.market import (
     CATEGORIES, UNITS, MarketSignup, PhoneCodeConfirm, MarketProfileOut, MarketProfileUpdate,
     ListingIn, ListingOut, ListingStatusUpdate, MediaOut, OwnerOut, OfferIn, OfferOut, ReportIn, ReportOut,
-    CommentIn, CommentOut, ReactionOut, AlertOut,
+    CommentIn, CommentOut, ReactionOut, AlertOut, InterestsIn, InterestsOut, LearnedInterest,
     IdExtractOut, IdConfirmIn, VerificationOut, VerificationReject,
 )
 from fastapi import Form
@@ -199,6 +199,7 @@ def market_signup(payload: MarketSignup, request: Request, db: Session = Depends
     except InvalidPhone as e:
         raise HTTPException(status_code=400, detail=str(e))
     district = _district(payload.district)
+    buys, sells = _clean_categories(payload.buys), _clean_categories(payload.sells)
 
     key = phone_key(phone)
     for contact, phone_number, role in db.query(User.contact, User.phone_number, User.role).filter(
@@ -233,9 +234,43 @@ def market_signup(payload: MarketSignup, request: Request, db: Session = Depends
                new_value={"role": user.role.value, "district": district}, commit=False)
     db.commit()
     db.refresh(user)
+    if buys or sells:
+        interests.set_declared(db, user.id, buys, sells)
 
     from app.api.v1.endpoints.auth import _issue_token
     return _issue_token(user, db)
+
+
+def _clean_categories(keys: list[str]) -> list[str]:
+    bad = [k for k in keys if k not in CATEGORIES]
+    if bad:
+        raise HTTPException(status_code=400, detail=f"Unknown category: {bad[0]}")
+    return sorted(set(keys))
+
+
+@router.get("/me/interests", response_model=InterestsOut)
+def my_interests(db: Session = Depends(get_db), current=Depends(MARKET_TRADERS)):
+    """What I said I buy / sell, plus what the feed has learned from what I do."""
+    from app.models.market import MarketInterest
+    rows = db.query(MarketInterest).filter(MarketInterest.user_id == current["id"]).all()
+    learned = []
+    for r in rows:
+        value = interests.decayed(r.score, r.updated_at)
+        if value >= 1.0:
+            learned.append(LearnedInterest(category=r.category, label=CATEGORIES.get(r.category, r.category),
+                                           side=r.side, strength=min(100, round(100 * value / interests.FULL_MATCH))))
+    learned.sort(key=lambda i: i.strength, reverse=True)
+    return InterestsOut(
+        buys=sorted(r.category for r in rows if r.declared and r.side == interests.NEEDS),
+        sells=sorted(r.category for r in rows if r.declared and r.side == interests.SELLS),
+        learned=learned,
+    )
+
+
+@router.put("/me/interests", response_model=InterestsOut)
+def set_my_interests(payload: InterestsIn, db: Session = Depends(get_db), current=Depends(MARKET_TRADERS)):
+    interests.set_declared(db, current["id"], _clean_categories(payload.buys), _clean_categories(payload.sells))
+    return my_interests(db, current)
 
 
 @router.get("/me", response_model=MarketProfileOut)
@@ -811,7 +846,7 @@ def make_offer(listing_id: uuid.UUID, payload: OfferIn, db: Session = Depends(ge
         raise too_many_requests(60 * 60)
 
     offer = Offer(listing_id=listing.id, from_user_id=current["id"], **payload.model_dump(),
-                  status=OfferStatus.pending)
+                  status=OfferStatus.pending, was_match=interests.matches_now(db, current["id"], listing))
     db.add(offer)
     db.commit()
     interests.record_for_listing(db, current["id"], listing, "offer")
@@ -922,6 +957,44 @@ def report_listing(listing_id: uuid.UUID, payload: ReportIn, db: Session = Depen
     db.add(ListingReport(listing_id=listing.id, reporter_id=current["id"], reason=payload.reason.strip()))
     db.commit()
     return {"message": "Thank you. A moderator will review this listing."}
+
+
+@router.get("/admin/feed-stats")
+def feed_stats(days: int = Query(default=30, ge=1, le=365), db: Session = Depends(get_db),
+               current=Depends(ADMIN_ONLY)):
+    """Is the "For you" feed working? Offers from matched members, and alerts that led to offers."""
+    from app.models.market import MarketInterest
+    since = datetime.utcnow() - timedelta(days=days)
+    offers = db.query(Offer).filter(Offer.created_at >= since)
+    total = offers.count()
+    measured = offers.filter(Offer.was_match.isnot(None)).count()
+    matched = offers.filter(Offer.was_match.is_(True)).count()
+    accepted_all = offers.filter(Offer.status == OfferStatus.accepted).count()
+    accepted_matched = offers.filter(Offer.was_match.is_(True), Offer.status == OfferStatus.accepted).count()
+
+    alerts = db.query(MarketAlert).filter(MarketAlert.created_at >= since)
+    alerts_sent = alerts.count()
+    alerts_seen = alerts.filter(MarketAlert.seen_at.isnot(None)).count()
+    alert_offers = (db.query(func.count(func.distinct(MarketAlert.id)))
+                    .join(Offer, (Offer.listing_id == MarketAlert.listing_id)
+                          & (Offer.from_user_id == MarketAlert.user_id))
+                    .filter(MarketAlert.created_at >= since, Offer.created_at >= MarketAlert.created_at).scalar())
+    declared_members = (db.query(func.count(func.distinct(MarketInterest.user_id)))
+                        .filter(MarketInterest.declared.is_(True)).scalar())
+
+    pct = lambda a, b: round(100 * a / b) if b else None
+    return {
+        "days": days,
+        "offers": total,
+        "offers_from_matched_members_pct": pct(matched, measured),
+        "accept_rate_matched_pct": pct(accepted_matched, matched),
+        "accept_rate_all_pct": pct(accepted_all, total),
+        "alerts_sent": alerts_sent,
+        "alerts_seen_pct": pct(alerts_seen, alerts_sent),
+        "alerts_to_offer_pct": pct(alert_offers, alerts_sent),
+        "members_with_declared_interests": declared_members,
+        "weights": interests.weights(),
+    }
 
 
 @router.get("/admin/reports", response_model=list[ReportOut])

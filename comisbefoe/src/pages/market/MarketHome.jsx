@@ -1,17 +1,34 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Search, Image as ImageIcon, Video, Megaphone, Bookmark, Handshake, SlidersHorizontal } from "lucide-react";
+import { Search, Image as ImageIcon, Video, Megaphone, Bookmark, Handshake, SlidersHorizontal, X } from "lucide-react";
 import client from "../../api/client.js";
 import { useAuthStore } from "../../store/authStore.js";
 import { loadMarketMeta } from "../../utils/market.js";
 import FeedPost, { Avatar } from "../../components/market/FeedPost.jsx";
 import CountBadge from "../../components/shared/CountBadge.jsx";
+import InterestPicker from "../../components/market/InterestPicker.jsx";
 import { useNotificationStore } from "../../store/notificationStore.js";
 
 const ROLE_LABEL = { farmer: "Farmer", trader: "Trader", produce_manager: "Buying station", produce_secretary: "Buying station", system_admin: "Admin" };
 // "For you" ranks posts by what you buy and sell (learned from your posts, offers, saves...)
 const TABS = [["for_you", "For you"], ["all", "Latest"], ["sell", "For sale"], ["wanted", "Wanted"], ["saved", "Saved"]];
 const MEMBER_ONLY_TABS = ["for_you", "saved"];
+const ASKED_KEY = "comis:interests-asked";
+
+function wasAsked() {
+  try {
+    return localStorage.getItem(ASKED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+function markAsked() {
+  try {
+    localStorage.setItem(ASKED_KEY, "1");
+  } catch {
+    /* private mode: the card may show again next time */
+  }
+}
 
 export default function MarketHome() {
   const { role, name, produceName, avatarUrl } = useAuthStore();
@@ -31,6 +48,26 @@ export default function MarketHome() {
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
+  const [askInterests, setAskInterests] = useState(false);
+  const [interestsChecked, setInterestsChecked] = useState(() => !canPost || wasAsked());
+
+  const onInterestsLoaded = useCallback((data) => {
+    const none = data.buys.length === 0 && data.sells.length === 0;
+    if (!none) markAsked();          // already picked (e.g. on the Me page): never ask again
+    setAskInterests(none);
+  }, []);
+  const closeInterests = () => {
+    markAsked();
+    setAskInterests(false);
+    setInterestsChecked(true);
+  };
+  const interestsSaved = () => {
+    closeInterests();
+    setLoading(true);
+    setPage(1);
+    setReloadKey((k) => k + 1);
+  };
 
   useEffect(() => {
     loadMarketMeta().then(setMeta);
@@ -59,7 +96,7 @@ export default function MarketHome() {
     return () => {
       cancelled = true;
     };
-  }, [tab, category, district, query, page, canPost]);
+  }, [tab, category, district, query, page, canPost, reloadKey]);
 
   // Any filter change restarts the feed from the top
   const restart = (fn) => (value) => {
@@ -108,6 +145,19 @@ export default function MarketHome() {
               <Link to="/market/new" className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg hover:bg-slate-100"><ImageIcon className="w-4.5 h-4.5 text-sky-600" /> Photo</Link>
               <Link to="/market/new" className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg hover:bg-slate-100"><Video className="w-4.5 h-4.5 text-[#168821]" /> Video</Link>
               <Link to="/market/new?kind=wanted" className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg hover:bg-slate-100"><Megaphone className="w-4.5 h-4.5 text-[#d4a000]" /> Wanted</Link>
+            </div>
+          </div>
+        )}
+
+        {!interestsChecked && (
+          <div className={askInterests ? "border-2 border-[#168821] rounded-2xl overflow-hidden bg-white shadow-xs" : "hidden"}>
+            <div className="bg-[#d4a000] py-2 px-4 flex items-center justify-between gap-2">
+              <h2 className="text-[#0f5c18] font-black text-sm uppercase tracking-wide">What do you buy &amp; sell?</h2>
+              <button onClick={closeInterests} aria-label="Not now" className="text-[#0f5c18] cursor-pointer"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="p-3.5 space-y-2">
+              <p className="text-xs text-slate-600">Tick what you trade. We will show those posts first and tell you when someone posts one.</p>
+              <InterestPicker onLoaded={onInterestsLoaded} onSaved={interestsSaved} saveLabel="Show my matches" />
             </div>
           </div>
         )}

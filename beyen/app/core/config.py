@@ -39,6 +39,12 @@ class Settings(BaseSettings):
     SMS_PROVIDER: str = "console"
     # Also text members (phone-verified only, max 1 per day) when a new post matches what they need/sell
     MARKET_ALERT_SMS: bool = False
+    # "For you" feed weights (tune from Market Moderation -> Feed stats, then set on Render)
+    FEED_W_MATCH: float = 5.0
+    FEED_W_NEARBY: float = 2.0
+    FEED_W_FRESH: float = 1.0
+    FEED_W_POPULAR: float = 0.5
+    FEED_W_TRUSTED: float = 1.0
 
     # Shared rate-limit counters (optional). Without it, limits are kept in memory per process.
     REDIS_URL: str | None = None

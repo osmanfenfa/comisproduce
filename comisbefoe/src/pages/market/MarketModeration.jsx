@@ -193,13 +193,66 @@ function Verifications() {
 }
 
 /** System Admin: reported listings and member ID verification. */
+function Stat({ label, value, hint }) {
+  return (
+    <div className="border border-slate-200 rounded-xl p-3 text-center">
+      <p className="text-xl font-black text-[#0f5c18]">{value ?? "-"}</p>
+      <p className="text-[11px] font-bold text-slate-700">{label}</p>
+      {hint && <p className="text-[10px] text-slate-400 mt-0.5">{hint}</p>}
+    </div>
+  );
+}
+
+function FeedStats() {
+  const [days, setDays] = useState(30);
+  const [stats, setStats] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    client.get("/market/admin/feed-stats", { params: { days } })
+      .then(({ data }) => !cancelled && setStats(data))
+      .catch(() => !cancelled && setStats({}));
+    return () => {
+      cancelled = true;
+    };
+  }, [days]);
+  const pct = (v) => (v == null ? null : `${v}%`);
+  if (!stats) return <div className="text-center py-10 text-xs text-slate-400">Loading...</div>;
+  return (
+    <div className="space-y-3">
+      <PillTabs tabs={[[7, "7 days"], [30, "30 days"], [90, "90 days"]]} value={days} onChange={setDays} />
+      <Card title="For you feed" bodyClassName="p-3 grid grid-cols-2 sm:grid-cols-3 gap-2">
+        <Stat label="Offers" value={stats.offers} />
+        <Stat label="From matched members" value={pct(stats.offers_from_matched_members_pct)} hint="already bought or sold that category" />
+        <Stat label="Accepted (matched)" value={pct(stats.accept_rate_matched_pct)} hint={`all offers: ${pct(stats.accept_rate_all_pct) ?? "-"}`} />
+        <Stat label="Alerts sent" value={stats.alerts_sent} />
+        <Stat label="Alerts opened" value={pct(stats.alerts_seen_pct)} />
+        <Stat label="Alerts to offer" value={pct(stats.alerts_to_offer_pct)} />
+        <Stat label="Members who ticked categories" value={stats.members_with_declared_interests} />
+      </Card>
+      {stats.weights && (
+        <Card title="Current weights" bodyClassName="p-3 space-y-2">
+          <div className="flex flex-wrap gap-1.5 justify-center">
+            {Object.entries(stats.weights).map(([k, v]) => (
+              <span key={k} className="px-2 py-0.5 rounded-full bg-emerald-50 text-[#0f5c18] text-[11px] font-bold">{k}: {v}</span>
+            ))}
+          </div>
+          <p className="text-[11px] text-slate-500 text-center">
+            Change them on Render with FEED_W_MATCH, FEED_W_NEARBY, FEED_W_FRESH, FEED_W_POPULAR and FEED_W_TRUSTED.
+            If matched offers are accepted more often than others, raise match; if few offers come from matches, lower it.
+          </p>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 export default function MarketModeration() {
   const [section, setSection] = useState("verifications");
   return (
     <div className="space-y-3 pb-20">
       <Banner>Market Moderation</Banner>
       <div className="flex bg-white border-2 border-[#168821] rounded-full p-1 max-w-md mx-auto">
-        {[["verifications", "ID Verifications"], ["reports", "Reported Posts"]].map(([k, l]) => (
+        {[["verifications", "ID Verifications"], ["reports", "Reported Posts"], ["feed", "Feed Stats"]].map(([k, l]) => (
           <button key={k} onClick={() => setSection(k)}
             className={`flex-1 py-1.5 rounded-full text-xs font-black transition cursor-pointer ${
               section === k ? "bg-[#d4a000] text-[#0f5c18]" : "text-slate-600"}`}>
@@ -207,7 +260,7 @@ export default function MarketModeration() {
           </button>
         ))}
       </div>
-      {section === "verifications" ? <Verifications /> : <Reports />}
+      {section === "verifications" ? <Verifications /> : section === "reports" ? <Reports /> : <FeedStats />}
     </div>
   );
 }

@@ -87,6 +87,8 @@ class Offer(Base):
     responded_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # When the person who made the offer saw the accept/decline (drives the notification badge)
     response_seen_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Measuring the "For you" feed: did the offerer already need/sell this category when offering?
+    was_match: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
     listing = relationship("Listing")
     from_user = relationship("User")
@@ -165,6 +167,8 @@ class MarketInterest(Base):
     category: Mapped[str] = mapped_column(String(40), index=True)
     side: Mapped[str] = mapped_column(String(10))          # needs | sells
     score: Mapped[float] = mapped_column(Float, default=0.0)
+    # Ticked by the member ("What do you buy / sell?"): never fades below DECLARED_FLOOR
+    declared: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 

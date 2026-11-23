@@ -9,6 +9,7 @@ import { loadMarketMeta, formatNle, compressImage } from "../../utils/market.js"
 import { Banner, Card, PillInput, PillSelect, PrimaryButton, SecondaryButton } from "../../components/market/ProduceUI.jsx";
 import UserAvatar from "../../components/shared/UserAvatar.jsx";
 import ProfilePhotoModal from "../../components/shared/ProfilePhotoModal.jsx";
+import InterestPicker from "../../components/market/InterestPicker.jsx";
 
 function PhoneVerification({ profile, onVerified }) {
   const [sent, setSent] = useState(false);
@@ -388,6 +389,11 @@ export default function MarketMe() {
           )}
         </section>
       )}
+
+      <Card title={"What I buy & sell"}>
+        <p className="text-xs text-slate-500 mb-3">Posts in these categories show first in your feed, and you get an alert when one is posted.</p>
+        <InterestPicker showLearned />
+      </Card>
 
       <Card title="Edit profile">
         <form onSubmit={save} className="space-y-2.5">
