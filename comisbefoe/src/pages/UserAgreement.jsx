@@ -32,10 +32,10 @@ export default function UserAgreement() {
             User Agreement
           </h1>
           <p className="text-sm text-slate-500">
-            For individual System Admin, Produce Manager, and Produce Secretary account holders.
+            For individual System Admin, Produce Manager, Produce Secretary, Farmer, and Trader account holders.
           </p>
           <p className="text-xs text-slate-400">
-            Version 1.0 · Effective Date: September 2026
+            Version 2.0 · Effective Date: November 2026 · Adds COMIS Market
           </p>
         </div>
 
@@ -44,7 +44,7 @@ export default function UserAgreement() {
           <section className="space-y-2">
             <h2 className="text-lg font-bold text-slate-900">1. Purpose of This Agreement</h2>
             <p>
-              This User Agreement ("Agreement") applies to every individual ("User," "you") who is issued a login to the COMIS platform (the "Service"), operated by <strong>Bukuma Inc.</strong>, under the role of System Admin, Produce Manager, or Produce Secretary, regardless of whether you are an owner, employee, or contractor of the registered Customer business. This Agreement supplements, and should be read together with, the Terms of Service governing the Customer's account.
+              This User Agreement ("Agreement") applies to every individual ("User," "you") who is issued a login to the COMIS platform (the "Service"), operated by <strong>Bukuma Inc.</strong>, under the role of System Admin, Produce Manager, or Produce Secretary, regardless of whether you are an owner, employee, or contractor of the registered Customer business, and to every farmer and trader who signs up for COMIS Market. This Agreement supplements, and should be read together with, the Terms of Service governing the Customer's account.
             </p>
             <p>
               By logging in and using an assigned Account, you acknowledge that you have read, understood, and agree to comply with this Agreement.
@@ -64,7 +64,13 @@ export default function UserAgreement() {
               <li>
                 <strong>Produce Secretary:</strong> Registers Sellers, records cocoa, coffee, and cola nut purchases with bag counts and weight data (submitted as "Pending" until reviewed), and views the status of their own submissions. A Produce Secretary cannot approve their own transactions, issue receipts, or create or approve loans.
               </li>
+              <li>
+                <strong>Farmer and Trader (COMIS Market):</strong> Post goods for sale or wanted, like, comment, save, and share posts, make and answer offers, and verify their phone number and identity. A farmer who verifies their phone number can also view the receipts and loans that buying stations recorded under that number. Farmers and traders have no access to buying-station records of other people.
+              </li>
             </ul>
+            <p>
+              Produce Managers and Produce Secretaries can also use COMIS Market on behalf of their station, and System Admins moderate it (reviewing reports and identity documents and removing posts that break the rules).
+            </p>
             <p>
               You agree to act only within the permissions of your assigned role and understand that the Service enforces these permissions at the system level — attempting to access functionality outside your role (including through technical means) is a violation of this Agreement.
             </p>
@@ -125,7 +131,7 @@ export default function UserAgreement() {
           <section className="space-y-2">
             <h2 className="text-lg font-bold text-slate-900">9. Reporting Security Incidents</h2>
             <p>
-              You will notify your Produce Manager or System Admin immediately if you suspect that: your credentials have been compromised; your device has been lost or stolen while logged into the Service; or any transaction, loan, or receipt appears to have been altered without proper authorization.
+              You will notify your Produce Manager or System Admin immediately if you suspect that: your credentials have been compromised; your device has been lost or stolen while logged into the Service; or any transaction, loan, or receipt appears to have been altered without proper authorization. Farmers and traders should change their password straight away and tell COMIS at comisworldproduce@gmail.com.
             </p>
           </section>
 
@@ -142,30 +148,47 @@ export default function UserAgreement() {
           </section>
 
           <section className="space-y-2">
-            <h2 className="text-lg font-bold text-slate-900">11. Internet Connection</h2>
+            <h2 className="text-lg font-bold text-slate-900">11. Using COMIS Market</h2>
+            <p>When you use COMIS Market, you agree to:</p>
+            <ul className="list-disc pl-6 space-y-1 text-slate-700">
+              <li>Post only honest listings for goods you have or genuinely want, with real photos and videos of the goods, and close or mark a listing as fulfilled when it is no longer available;</li>
+              <li>Make offers you intend to honour, and settle prices, quality, delivery, and payment directly and fairly with the other person (COMIS does not take part in or guarantee trades);</li>
+              <li>Use another person's phone number, shown after an accepted offer, only to complete that deal, and not share it with anyone else;</li>
+              <li>Keep comments and replies respectful, and not post spam, scams, threats, or other people's personal details;</li>
+              <li>Verify your identity only with your own genuine national ID card or passport, and not create more than one account per phone number or per document;</li>
+              <li>Use a profile photo of yourself or your business, not of another person;</li>
+              <li>Report posts that look fraudulent, illegal, or abusive.</li>
+            </ul>
+            <p>
+              The categories you tick under "What do you buy and sell?", and what you do in the market, are used to order your feed and send you match alerts. You can change your categories at any time on the Me page.
+            </p>
+          </section>
+
+          <section className="space-y-2">
+            <h2 className="text-lg font-bold text-slate-900">12. Internet Connection</h2>
             <p>
               You understand that COMIS needs an internet connection to record and view data. Entries are saved only once the server confirms them; if the connection fails, re-enter the entry when you are back online.
             </p>
           </section>
 
           <section className="space-y-2">
-            <h2 className="text-lg font-bold text-slate-900">12. Consequences of Violation</h2>
+            <h2 className="text-lg font-bold text-slate-900">13. Consequences of Violation</h2>
             <p>
-              Violation of this Agreement may result in suspension or termination of your Account access, at the discretion of the Customer's System Admin and/or Produce Manager, and, where the conduct involves fraud, falsification of records, or theft, may be reported to the Customer's management and, where appropriate, to law enforcement authorities.
+              Violation of this Agreement may result in removal of your posts and suspension or termination of your Account access, at the discretion of COMIS administrators or, for station accounts, the Customer's System Admin and/or Produce Manager, and, where the conduct involves fraud, falsification of records, or theft, may be reported to the Customer's management and, where appropriate, to law enforcement authorities.
             </p>
           </section>
 
           <section className="space-y-2">
-            <h2 className="text-lg font-bold text-slate-900">13. Termination of Access</h2>
+            <h2 className="text-lg font-bold text-slate-900">14. Termination of Access</h2>
             <p>
               Your access under this Agreement terminates automatically upon: (a) deactivation of your Account by a Produce Manager or System Admin; (b) the end of your employment or engagement with the Customer; or (c) termination of the Customer's own account under the Terms of Service. You agree to immediately cease using the Service upon any such termination.
             </p>
           </section>
 
           <section className="space-y-2">
-            <h2 className="text-lg font-bold text-slate-900">14. Acknowledgment</h2>
+            <h2 className="text-lg font-bold text-slate-900">15. Acknowledgment</h2>
             <p>
-              By logging into the Service, you confirm that you have read and agree to this User Agreement, that the information you provided to create your Account is accurate, and that you understand the responsibilities attached to your assigned role.
+              By signing up for or logging into the Service, you confirm that you have read and agree to this User Agreement, that the information you provided to create your Account is accurate, and that you understand the responsibilities attached to your assigned role.
             </p>
           </section>
 

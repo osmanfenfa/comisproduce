@@ -29,18 +29,51 @@ export default function About() {
             About COMIS
           </h1>
           <p className="text-lg font-bold text-[#168821]">
-            COMIS is COMIS — A unified platform for managing every produce buying station.
+            One platform for produce buying stations, and a marketplace that connects farmers, traders, and stations.
           </p>
         </div>
 
         {/* Content */}
         <div className="space-y-6 text-sm sm:text-base leading-relaxed text-slate-700">
           <p>
-            Developed by <strong>Bukuma Inc.</strong>, COMIS is purpose-built to digitize, organize, and safeguard buying-station operations across cash crops and agricultural commodities, empowering buying businesses, managers, and staff with speed, accuracy, and absolute transparency.
+            Developed by <strong>Bukuma Inc.</strong>, COMIS digitizes, organizes, and safeguards buying-station operations across cash crops and agricultural commodities. Through <strong>COMIS Market</strong>, it also lets farmers, traders, and buying stations find each other, post what they have to sell or want to buy, and agree deals directly.
           </p>
 
           <div className="space-y-3 pt-2">
-            <h2 className="text-xl font-bold text-slate-900">Platform Capabilities</h2>
+            <h2 className="text-xl font-bold text-slate-900">COMIS Market</h2>
+            <ul className="list-disc pl-6 space-y-2 text-slate-700">
+              <li>
+                <strong>Sign Up with a Phone Number:</strong> Farmers and traders create a free account with their phone number, district, and chiefdom, and can start using the market straight away. Buying stations use the market from their existing station accounts.
+              </li>
+              <li>
+                <strong>Sell and Wanted Posts:</strong> Post produce, livestock, inputs, and other goods for sale, or post what you want to buy, with quantity, price in Leones, location, up to six photos, and one short video.
+              </li>
+              <li>
+                <strong>A Feed That Knows What You Trade:</strong> The "For you" feed shows each post first to the people on the other side of it. A cassava sale goes first to people who buy cassava, and a request for cassava goes first to people who sell it. COMIS learns this from your posts, offers, and saves, and from the categories you tick under "What do you buy and sell?".
+              </li>
+              <li>
+                <strong>Match Alerts:</strong> When someone posts what you buy or sell, you get an alert in My Activity, nearby posts first. Phone-verified members can also get an SMS, at most one a day.
+              </li>
+              <li>
+                <strong>Offers and Safe Contact Sharing:</strong> Make an offer on any post. Phone numbers are shown only to the two people in an offer, and only after it is accepted.
+              </li>
+              <li>
+                <strong>Like, Comment, Share, and Save:</strong> Ask questions and reply on any post, and save posts to find them again later.
+              </li>
+              <li>
+                <strong>Verified Members:</strong> Members can verify their phone number by SMS code and their identity with a photo of a national ID card or passport. COMIS reads the document number automatically, and an administrator checks every document before the verified badge is given.
+              </li>
+              <li>
+                <strong>Your Station Records:</strong> Farmers who verify their phone number can see the receipts and loans recorded for them by the buying stations they sell to.
+              </li>
+              <li>
+                <strong>Profile Photos and Moderation:</strong> Every member can add a profile photo. Members can report posts, and administrators remove posts that break the rules.
+              </li>
+            </ul>
+          </div>
+
+          <div className="space-y-3 pt-2">
+            <h2 className="text-xl font-bold text-slate-900">Buying Station Capabilities</h2>
             <ul className="list-disc pl-6 space-y-2 text-slate-700">
               <li>
                 <strong>Intelligent Intake & Moisture Deduction:</strong> Automates moisture testing and net weight calculations for Cocoa purchases using standard proportional deduction formulas, alongside flat intake pricing for Coffee and Cola Nut.
@@ -58,7 +91,7 @@ export default function About() {
                 <strong>Supply Outbound to Buyer Companies:</strong> Streamlines outbound produce sales from stations to large buyer companies, recording total kilograms, bags, water percentages, and witness signatures.
               </li>
               <li>
-                <strong>Light on Data:</strong> Built mobile-first for rural buying centers, with small pages and photos compressed on the phone before upload to keep mobile data costs low.
+                <strong>Light on Data:</strong> Built mobile-first for rural areas. Photos are compressed on the phone before upload and delivered in small, phone-sized versions to keep mobile data costs low.
               </li>
             </ul>
           </div>

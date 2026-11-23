@@ -82,7 +82,7 @@ export default function LegalModal({ isOpen, initialTab = "terms", onClose, onAg
               <div>
                 <h5 className="font-bold text-slate-900 mb-1">1. Acceptance of Terms</h5>
                 <p className="leading-relaxed">
-                  These Terms of Service ("Terms") constitute a legally binding agreement between <strong>COMIS</strong> and the produce-buying business registering a Produce Business account. By registering, accessing, or using COMIS, you agree to be bound by these Terms.
+                  These Terms of Service ("Terms") are a legally binding agreement between <strong>COMIS</strong> and the produce-buying business registering a Produce Business account, and between COMIS and every farmer or trader who signs up for COMIS Market. By registering, accessing, or using COMIS, you agree to be bound by these Terms.
                 </p>
               </div>
 
@@ -101,7 +101,14 @@ export default function LegalModal({ isOpen, initialTab = "terms", onClose, onAg
               </div>
 
               <div>
-                <h5 className="font-bold text-slate-900 mb-1">4. Support & Notices</h5>
+                <h5 className="font-bold text-slate-900 mb-1">4. COMIS Market</h5>
+                <p className="leading-relaxed">
+                  Farmers, traders, and buying stations can post goods for sale or wanted and make offers. COMIS is not a party to any trade: price, quality, delivery, and payment are agreed directly between the people involved. Listings must be honest and lawful, with real photos of the goods. Phone numbers are shared only after an offer is accepted, and only for that deal. Administrators may remove posts and suspend accounts that break the rules.
+                </p>
+              </div>
+
+              <div>
+                <h5 className="font-bold text-slate-900 mb-1">5. Support & Notices</h5>
                 <p className="leading-relaxed">
                   Official contact and legal notices must be submitted via email to: <a href="mailto:comisworldproduce@gmail.com" className="font-bold text-emerald-700">comisworldproduce@gmail.com</a>.
                 </p>
@@ -119,7 +126,7 @@ export default function LegalModal({ isOpen, initialTab = "terms", onClose, onAg
               <div>
                 <h5 className="font-bold text-slate-900 mb-1">1. Purpose and Scope</h5>
                 <p className="leading-relaxed">
-                  This Agreement applies to all individual users authorized to log into the COMIS platform. Access is role-restricted based on system permissions.
+                  This Agreement applies to all individual users of COMIS: System Admins, Produce Managers, Produce Secretaries, farmers, and traders. Access is role-restricted based on system permissions.
                 </p>
               </div>
 
@@ -138,7 +145,14 @@ export default function LegalModal({ isOpen, initialTab = "terms", onClose, onAg
               </div>
 
               <div>
-                <h5 className="font-bold text-slate-900 mb-1">4. Contact & Disputes</h5>
+                <h5 className="font-bold text-slate-900 mb-1">4. Using COMIS Market</h5>
+                <p className="leading-relaxed">
+                  Post only goods you have or genuinely want, make offers you intend to honour, and use another person's phone number only to complete your deal with them. Keep comments respectful. Verify only with your own genuine ID card or passport, and keep one account per phone number.
+                </p>
+              </div>
+
+              <div>
+                <h5 className="font-bold text-slate-900 mb-1">5. Contact & Disputes</h5>
                 <p className="leading-relaxed">
                   For account recovery, security concerns, or questions, reach our compliance team at <a href="mailto:comisworldproduce@gmail.com" className="font-bold text-emerald-700">comisworldproduce@gmail.com</a>.
                 </p>
@@ -156,19 +170,26 @@ export default function LegalModal({ isOpen, initialTab = "terms", onClose, onAg
               <div>
                 <h5 className="font-bold text-slate-900 mb-1">1. Information We Collect</h5>
                 <p className="leading-relaxed">
-                  We collect account credentials (name, contact phone/email, produce business name), operational data (produce transaction weights, moisture tests, loan balances, receipt numbers), and audit logs to ensure transparent financial transactions.
+                  We collect account details (name, phone or email, district, business name, optional profile photo), station records (produce weights, moisture tests, loan balances, receipts), and audit logs. In COMIS Market we also keep your posts, photos, videos, comments, offers, and your verification details (phone code confirmation and, if you choose, a photo and number of your ID card or passport).
                 </p>
               </div>
 
               <div>
                 <h5 className="font-bold text-slate-900 mb-1">2. Data Storage</h5>
                 <p className="leading-relaxed">
-                  COMIS stores your data on secure cloud servers. An internet connection is needed to record and view data; the app does not keep copies of your records on the device.
+                  COMIS stores your data on secure cloud servers; post and profile photos are kept with a media-hosting service. ID documents are stored privately and seen only by you and COMIS administrators. Other members see your name, location, photo, and posts, but your phone number only after you accept their offer, or they accept yours.
                 </p>
               </div>
 
               <div>
-                <h5 className="font-bold text-slate-900 mb-1">3. Data Security & Contact</h5>
+                <h5 className="font-bold text-slate-900 mb-1">3. Your Feed and Alerts</h5>
+                <p className="leading-relaxed">
+                  COMIS learns which categories you buy and sell from your posts, offers, and saves, and from the categories you tick, so it can show matching posts first and alert you when one is posted. You can change your categories on the Me page, and the Latest feed always shows every post.
+                </p>
+              </div>
+
+              <div>
+                <h5 className="font-bold text-slate-900 mb-1">4. Data Security & Contact</h5>
                 <p className="leading-relaxed">
                   We implemented data security to ensure your data is safe. For privacy requests or questions, contact our Data Protection Officer at: <a href="mailto:comisworldproduce@gmail.com" className="font-bold text-emerald-700">comisworldproduce@gmail.com</a>.
                 </p>

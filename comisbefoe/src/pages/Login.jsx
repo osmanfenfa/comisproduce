@@ -444,13 +444,8 @@ export default function Login({ initialMode = "signin" }) {
               </div>
             </div>
 
-            {/* Slogan */}
-            <h2 className="text-[#168821] font-bold text-xs sm:text-sm text-center mt-1 tracking-tight">
-              Manage your produce buying at ease
-            </h2>
-
             {/* Action Heading */}
-            <h1 className="text-[#168821] font-black text-sm sm:text-base text-center mt-0.5 tracking-wider uppercase">
+            <h1 className="text-[#168821] font-black text-sm sm:text-base text-center mt-1.5 tracking-wider uppercase">
               {isRegister ? "REGISTER" : "LOGIN"}
             </h1>
 
